@@ -1,0 +1,5 @@
+# Shared types package (npm)
+# Pure TypeScript types — no runtime dependencies
+
+# Dev tooling
+typescript

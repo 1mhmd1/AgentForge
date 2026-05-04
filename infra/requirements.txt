@@ -1,0 +1,10 @@
+# Infrastructure dependencies
+# Docker
+docker
+docker-compose
+
+# Reverse proxy
+nginx
+
+# Container orchestration (optional, future)
+kubectl

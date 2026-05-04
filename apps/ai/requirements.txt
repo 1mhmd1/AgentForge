@@ -1,0 +1,22 @@
+# AI engine dependencies (npm)
+# LangGraph + LangChain
+@langchain/core
+@langchain/langgraph
+@langchain/groq
+@langchain/google-genai
+@langchain/openai
+
+# Templates + validation
+handlebars
+zod
+
+# Runtime
+dotenv
+
+# Internal
+shared
+
+# Dev tooling
+typescript
+tsx
+@types/node

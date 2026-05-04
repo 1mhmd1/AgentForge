@@ -1,0 +1,19 @@
+# Frontend dependencies (npm)
+# Runtime
+react
+react-dom
+react-router-dom
+axios
+
+# Internal
+shared
+
+# Dev tooling
+typescript
+vite
+@vitejs/plugin-react
+tailwindcss
+postcss
+autoprefixer
+@types/react
+@types/react-dom

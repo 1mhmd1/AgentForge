@@ -1,0 +1,4 @@
+# Documentation dependencies
+# Markdown only — no runtime dependencies
+markdown
+mermaid

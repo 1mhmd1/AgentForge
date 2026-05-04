@@ -1,0 +1,5 @@
+# Scripts dependencies
+# Shell + Node.js
+bash
+node
+tsx
