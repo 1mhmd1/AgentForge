@@ -1,6 +1,0 @@
-# GitHub Actions / CI dependencies
-# These are installed inside CI runners
-node
-npm
-actions/checkout@v4
-actions/setup-node@v4
