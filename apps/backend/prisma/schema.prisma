@@ -59,23 +59,27 @@ model Session {
 // RUN
 // ─────────────────────────────────────────
 model Run {
-  id         String @id @default(cuid())
+  id          String @id @default(cuid())
 
-  userPrompt String
+  // Add these two lines to link back to Session
+  sessionId   String
+  session     Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  stage      Stage     @default(PLANNING)
-  status     RunStatus @default(RUNNING)
+  userPrompt  String
 
-  domain     Domain?
+  stage       Stage     @default(PLANNING)
+  status      RunStatus @default(RUNNING)
 
-  spec       Json?
+  domain      Domain?
 
-  finalError String?
+  spec        Json?
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  finalError  String?
 
-  agentRun   AgentRun?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  agentRun    AgentRun?
 
   @@map("runs")
 }
