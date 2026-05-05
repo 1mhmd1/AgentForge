@@ -36,7 +36,7 @@ class AgentForgeState(TypedDict):
     sandbox_output:    Optional[str]        # stdout from running the agent
     sandbox_exit_code: Optional[int]        # 0 = success, anything else = fail
     semantic_score:    Optional[float]      # 0.0 to 1.0 — how good is the output
-    status:            str                  # planning / building / validating / done / failed
+    status:            str                  # planning / building / validating / Completed / failed
     final_error:       Optional[str]        # set if the whole pipeline fails
 
 
