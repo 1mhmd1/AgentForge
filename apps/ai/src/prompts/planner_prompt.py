@@ -12,6 +12,8 @@ Return ONLY valid JSON with the following fields:
 Rules:
 - Output JSON only. No markdown, no code fences, no extra text.
 - Ensure the JSON is valid and parseable.
+- If domain is provided externally (frontend), you MUST NOT change it.
+- The system will override domain after your response if needed.
 
 User prompt:
 {user_prompt}

@@ -26,9 +26,11 @@ def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         spec = json.loads(cleaned)     # ⑥ Convert JSON string → Python dict
         
         # ⑦ Domain override: user's choice takes priority
-        domain = next_state.get("domain") or spec.get("domain")
-        if domain:
+        domain = next_state.get("domain")
+        if domain is not None:
             spec["domain"] = domain
+        else:
+            domain = spec.get("domain")
         
         # ⑧ Update state with the plan
         next_state["spec"] = spec
