@@ -1,0 +1,131 @@
+// AgentForge — Prisma Schema
+// Database: PostgreSQL
+// Auth: Email/Password + Google OAuth
+// Vector DB: Qdrant (connected by run_id)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String?
+  role           Role      @default(USER)
+
+  // Email/Password auth
+  passwordHash   String?   // null if user signed up with Google
+
+  // Google OAuth
+  googleId       String?   @unique // null if user signed up with email
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  sessions       Session[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────
+// SESSION
+// ─────────────────────────────────────────
+model Session {
+  id          String    @id @default(cuid())
+
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // If session expired and user wants to continue →
+  // a new session is created but linked to the previous one
+  // so history carries over
+  previousSessionId  String?   @unique
+  previousSession    Session?  @relation("SessionContinuation", fields: [previousSessionId], references: [id])
+  continuedBy        Session?  @relation("SessionContinuation")
+
+  expiresAt   DateTime
+  lastSeenAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  runs        Run[]
+
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────
+// RUN
+// Each attempt to build an agent inside a session
+// ─────────────────────────────────────────
+model Run {
+  id          String    @id @default(cuid())  // this is the run_id used in Qdrant too
+
+  sessionId   String
+  session     Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  // The original request the user typed
+  userPrompt  String
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  agentRun    AgentRun?
+
+  @@map("runs")
+}
+
+// ─────────────────────────────────────────
+// AGENT RUN
+// Heavy AI data (embeddings, memory) lives in Qdrant — linked by run_id
+// ─────────────────────────────────────────
+model AgentRun {
+  id             String      @id @default(cuid())
+
+  runId          String      @unique
+  run            Run         @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  domain         Domain
+  status         AgentStatus @default(PLANNING)
+  semanticScore  Float?      // 0.0 to 1.0 — null until validation runs
+
+  // Full planner output stored as JSON blob
+  spec           Json?
+
+  repairAttempts Int         @default(0)
+  finalError     String?
+
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@map("agent_runs")
+}
+
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+enum Role {
+  ADMIN
+  USER
+}
+
+enum Domain {
+  WEB_RESEARCH
+  DOCUMENT
+  DATA_TRANSFORM
+  WEBSITE_BUILDER
+}
+
+enum AgentStatus {
+  PLANNING
+  BUILDING
+  VALIDATING
+  COMPLETED
+  FAILED
+}
