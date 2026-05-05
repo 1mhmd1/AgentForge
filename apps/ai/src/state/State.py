@@ -1,9 +1,11 @@
 from typing import TypedDict, Optional, Literal
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# The 4 supported domains — only these values are allowed
+# ===== MATCH SHARED TYPES =====
+
 Domain = Literal[
     "web_research",
     "document",
@@ -11,50 +13,94 @@ Domain = Literal[
     "website_builder"
 ]
 
-# The structured spec the planner produces
+Stage = Literal[
+    "planning",
+    "building",
+    "validating",
+    "completed"
+]
+
+RunStatus = Literal[
+    "queued",
+    "running",
+    "completed",
+    "failed"
+]
+
+Complexity = Literal["simple", "medium"]
+
+
+# ===== AGENT SPEC =====
+
 class AgentSpec(TypedDict):
-    goal:             str           # what the agent should do
-    domain:           Domain        # which domain it belongs to
-    inputs:           list[dict]    # what the agent takes in
-    outputs:          list[dict]    # what the agent produces
-    tools:            list[str]     # e.g. ["requests", "beautifulsoup4"]
-    steps:            list[str]     # ordered steps to accomplish the goal
-    success_criteria: str           # how we know the agent worked
-    complexity:       Literal["simple", "medium"]
+    goal: str
+    domain: Domain
+    inputs: list[dict]
+    outputs: list[dict]
+    tools: list[str]
+    steps: list[str]
+    success_criteria: str
+    complexity: Complexity
 
-# The main state — travels through every node in the pipeline
+
+# ===== MAIN STATE =====
+
 class AgentForgeState(TypedDict):
-    run_id:            str                  # unique ID for this run
-    user_prompt:       str                  # the original user request
-    spec:              Optional[AgentSpec]  # filled by planner node
-    domain:            Optional[Domain]     # filled by domain router
-    template_path:     Optional[str]        # filled by domain router
-    generated_code:    Optional[str]        # filled by builder node
-    output_path:       Optional[str]        # path to the generated file
-    validation_errors: list[str]            # errors from any validator
-    repair_attempts:   int                  # starts at 0, max 2
-    sandbox_output:    Optional[str]        # stdout from running the agent
-    sandbox_exit_code: Optional[int]        # 0 = success, anything else = fail
-    semantic_score:    Optional[float]      # 0.0 to 1.0 — how good is the output
-    status:            str                  # planning / building / validating / Completed / failed
-    final_error:       Optional[str]        # set if the whole pipeline fails
+    run_id: str
+    user_prompt: str
 
+    # 🔥 FIXED
+    stage: Stage
+    status: RunStatus
+
+    spec: Optional[AgentSpec]
+    domain: Optional[Domain]
+
+    template_path: Optional[str]
+    generated_code: Optional[str]
+    output_path: Optional[str]
+
+    validation_errors: list[str]
+    repair_attempts: int
+
+    sandbox_output: Optional[str]
+    sandbox_exit_code: Optional[int]
+
+    semantic_score: Optional[float]
+
+    final_error: Optional[str]
+
+    created_at: str
+    completed_at: Optional[str]
+
+
+# ===== INITIAL STATE =====
 
 def initial_state(run_id: str, user_prompt: str) -> AgentForgeState:
-    """Creates a fresh state at the start of every run."""
     return AgentForgeState(
         run_id=run_id,
         user_prompt=user_prompt,
+
+        stage="planning",        # 🔥 workflow step
+        status="running",        # 🔥 overall state
+
         spec=None,
         domain=None,
+
         template_path=None,
         generated_code=None,
         output_path=None,
+
         validation_errors=[],
         repair_attempts=0,
+
         sandbox_output=None,
         sandbox_exit_code=None,
+
         semantic_score=None,
-        status="planning",
+
         final_error=None,
+
+        created_at=datetime.utcnow().isoformat() + "Z",
+        completed_at=None,
     )
