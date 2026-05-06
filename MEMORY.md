@@ -277,6 +277,19 @@ Final
 
 ---
 
+## AI Builder Node (Current Implementation)
+
+- `apps/ai/src/nodes/builder.py` validates `spec` and fails fast with `status = failed` and `final_error = builder_invalid_spec` when:
+	- `spec` is not a dict
+	- `steps` is not a list
+	- `goal` is empty or fewer than 2 steps exist
+- Normalizes `steps` and `tools` into trimmed string lists (filters `None`/empty).
+- Builds `step_map` with IDs `step_1...step_n`, each containing `order`, `text`, and `tools`.
+- Sets `execution_order` as the ordered list of step IDs.
+- Writes normalized `spec`, sets `domain` from `spec`, and updates `stage = building`, `status = running`.
+
+---
+
 ## Critical Decisions Made
 
 1.  Stage vs Status separation
