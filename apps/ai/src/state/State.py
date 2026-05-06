@@ -43,6 +43,14 @@ class AgentSpec(TypedDict):
     complexity: Complexity
 
 
+# ===== BUILDER STATE =====
+
+class ExecutionStep(TypedDict):
+    order: int
+    text: str
+    tools: list[str]
+
+
 # ===== MAIN STATE =====
 
 class AgentForgeState(TypedDict):
@@ -55,6 +63,9 @@ class AgentForgeState(TypedDict):
 
     spec: Optional[AgentSpec]
     domain: Optional[Domain]
+
+    step_map: Optional[dict[str, ExecutionStep]]
+    execution_order: Optional[list[str]]
 
     template_path: Optional[str]
     generated_code: Optional[str]
@@ -86,6 +97,9 @@ def initial_state(run_id: str, user_prompt: str) -> AgentForgeState:
 
         spec=None,
         domain=None,
+
+        step_map=None,
+        execution_order=None,
 
         template_path=None,
         generated_code=None,
