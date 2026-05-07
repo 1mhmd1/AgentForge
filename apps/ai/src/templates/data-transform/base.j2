@@ -1,0 +1,208 @@
+import os
+import json
+from datetime import datetime, timezone
+
+# ── Injected by Builder ───────────────────────────────────────────────
+RUN_ID              = "{{ run_id }}"
+OUTPUT_DIR          = "{{ output_dir }}"
+DOMAIN              = "{{ domain }}"
+GOAL                = "{{ goal }}"
+COMPLEXITY          = "{{ complexity }}"
+SUCCESS_CRITERIA    = "{{ success_criteria }}"
+STEPS               = {{ steps | tojson }}
+TOOLS               = {{ tools | tojson }}
+
+# ── Domain-specific (data_transform) ──────────────────────────────────
+INPUT_SCHEMA        = {{ input_schema | tojson }}
+OUTPUT_SCHEMA       = {{ output_schema | tojson }}
+TRANSFORMATIONS     = {{ transformations | tojson }}
+COLUMN_MAPPING      = {{ column_mapping | tojson }}
+VALIDATION_RULES    = {{ validation_rules | tojson }}
+INPUT_FILE_FORMAT   = "{{ input_file_format }}"    # "csv" | "json" | "jsonl" | "tsv"
+OUTPUT_FILE_FORMAT  = "{{ output_file_format }}"   # "csv" | "json" | "jsonl" | "parquet"
+
+# ── Output paths ──────────────────────────────────────────────────────
+INPUT_DIR             = os.path.join(OUTPUT_DIR, "input")
+OUTPUT_DATA_DIR       = os.path.join(OUTPUT_DIR, "output")
+SCHEMA_PATH           = os.path.join(OUTPUT_DIR, "schema.json")
+VALIDATION_REPORT_PATH = os.path.join(OUTPUT_DIR, "validation_report.json")
+METADATA_PATH         = os.path.join(OUTPUT_DIR, "metadata.json")
+
+# ── Helpers ───────────────────────────────────────────────────────────
+
+def ensure_output_dir() -> None:
+    os.makedirs(INPUT_DIR, exist_ok=True)
+    os.makedirs(OUTPUT_DATA_DIR, exist_ok=True)
+
+def write_file(path: str, content: str) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"[+] Written: {path}")
+
+def read_file(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+def write_json(path: str, data: dict | list) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    print(f"[+] Written: {path}")
+
+def save_metadata(status: str, stats: dict | None = None, error: str | None = None) -> None:
+    meta = {
+        "run_id": RUN_ID,
+        "domain": DOMAIN,
+        "goal": GOAL,
+        "input_format": INPUT_FILE_FORMAT,
+        "output_format": OUTPUT_FILE_FORMAT,
+        "transformations": TRANSFORMATIONS,
+        "stats": stats or {},
+        "status": status,
+        "error": error,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    write_json(METADATA_PATH, meta)
+
+# ── Builder Injection Functions ───────────────────────────────────────
+
+def load_data() -> list[dict]:
+    """
+    Load input data from INPUT_DIR.
+    Builder injects actual loading logic here.
+    """
+    records = []
+
+    """BUILDER_INJECT:load_data"""
+
+    return records
+
+
+def validate_input(records: list[dict]) -> dict:
+    """
+    Validate input records against INPUT_SCHEMA and VALIDATION_RULES.
+    Builder injects actual validation logic here.
+    """
+    report = {"passed": 0, "failed": 0, "errors": []}
+
+    """BUILDER_INJECT:validate_input"""
+
+    return report
+
+
+def transform(records: list[dict]) -> list[dict]:
+    """
+    Apply transformations to the records.
+    Builder injects additional transformation logic here.
+    """
+    transformed = []
+
+    for record in records:
+        row = {}
+
+        {% for src, dst in column_mapping.items() %}
+        row["{{ dst }}"] = record.get("{{ src }}")
+        {% endfor %}
+
+        """BUILDER_INJECT:additional_transforms"""
+
+        transformed.append(row)
+
+    return transformed
+
+
+def validate_output(records: list[dict]) -> dict:
+    """
+    Validate output records against OUTPUT_SCHEMA.
+    Builder injects output validation logic here.
+    """
+    report = {"passed": 0, "failed": 0, "errors": []}
+
+    """BUILDER_INJECT:validate_output"""
+
+    return report
+
+
+def export_data(records: list[dict]) -> str:
+    """
+    Export transformed records to OUTPUT_FILE_FORMAT.
+    Builder injects export logic here.
+    """
+    filename = f"output.{OUTPUT_FILE_FORMAT}"
+    out_path = os.path.join(OUTPUT_DATA_DIR, filename)
+
+    """BUILDER_INJECT:export_data"""
+
+    return out_path
+
+# ── Step Execution Functions ──────────────────────────────────────────
+
+{% for step in steps %}
+
+def execute_step_{{ loop.index }}():
+    """
+    Step {{ loop.index }}/{{ steps | length }}
+
+    {{ step }}
+    """
+
+    """BUILDER_INJECT:step_{{ loop.index }}"""
+
+
+{% endfor %}
+
+# ── Runner ────────────────────────────────────────────────────────────
+
+def run() -> None:
+    ensure_output_dir()
+
+    print(f"[AgentForge:{DOMAIN}] run_id={RUN_ID}")
+    print(f"[AgentForge:{DOMAIN}] {INPUT_FILE_FORMAT} → {OUTPUT_FILE_FORMAT}")
+    print(f"[AgentForge:{DOMAIN}] steps={len(STEPS)}")
+
+    write_json(SCHEMA_PATH, {
+        "input_schema": INPUT_SCHEMA,
+        "output_schema": OUTPUT_SCHEMA,
+        "column_mapping": COLUMN_MAPPING,
+        "validation_rules": VALIDATION_RULES,
+    })
+
+    try:
+        step_results = {}
+
+        {% for step in steps %}
+        print(f"[Step {{ loop.index }}] {{ step }}")
+        step_results["step_{{ loop.index }}"] = execute_step_{{ loop.index }}()
+        {% endfor %}
+
+        records = load_data()
+        input_report = validate_input(records)
+        transformed = transform(records)
+        output_report = validate_output(transformed)
+        out_path = export_data(transformed)
+
+        validation_report = {
+            "input_validation": input_report,
+            "output_validation": output_report,
+            "total_records": len(records),
+            "transformed": len(transformed),
+            "step_results": step_results,
+        }
+        write_json(VALIDATION_REPORT_PATH, validation_report)
+
+        stats = {
+            "input_records": len(records),
+            "output_records": len(transformed),
+            "output_file": out_path,
+        }
+        save_metadata("completed", stats=stats)
+        print(f"[AgentForge:{DOMAIN}] Done. Output: {OUTPUT_DIR}")
+
+        if output_report["failed"] > 0:
+            print(f"[!] {output_report['failed']} records failed output validation.")
+
+    except Exception as exc:
+        save_metadata("failed", error=str(exc))
+        raise
+
+if __name__ == "__main__":
+    run()
