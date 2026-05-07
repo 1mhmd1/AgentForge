@@ -1,11 +1,16 @@
 import os
-from openai import OpenAI
-
+from dotenv import load_dotenv
+load_dotenv()
 def call_llm(prompt: str) -> str:
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))  # ① Get API key
-    response = client.chat.completions.create(             # ② Call OpenAI
-        model="gpt-4o-mini",        # Use GPT-4o-mini model
-        temperature=0,              # Deterministic (same input = same output)
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.choices[0].message.content.strip()     # ③ Return AI's answer
+    provider = os.getenv("LLM_PROVIDER", "groq")
+
+    if provider == "groq":
+        from llm.providers.groq_provider import call_groq
+        return call_groq(prompt)
+
+    elif provider == "gemini":
+        from llm.providers.gemini_provider import call_gemini
+        return call_gemini(prompt)
+
+    else:
+        raise ValueError("Unknown LLM provider: " + provider)
