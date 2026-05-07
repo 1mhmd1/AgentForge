@@ -1,0 +1,247 @@
+import os
+import json
+from datetime import datetime, timezone
+
+# ── Injected by Builder ───────────────────────────────────────────────
+RUN_ID           = "{{ run_id }}"
+OUTPUT_DIR       = "{{ output_dir }}"
+DOMAIN           = "{{ domain }}"
+GOAL             = "{{ goal }}"
+COMPLEXITY       = "{{ complexity }}"
+SUCCESS_CRITERIA = "{{ success_criteria }}"
+STEPS            = {{ steps | tojson }}
+TOOLS            = {{ tools | tojson }}
+
+# ── Domain-specific (website_builder) ────────────────────────────────
+SITE_NAME           = "{{ site_name }}"
+SITE_DESCRIPTION    = "{{ site_description }}"
+PAGES               = {{ pages | tojson }}              # e.g. ["index", "about", "contact"]
+SECTIONS            = {{ sections | tojson }}           # e.g. ["hero", "features", "footer"]
+STYLE_TOKENS        = {{ style_tokens | tojson }}       # e.g. {"primary": "#3C3489", "font": "Inter"}
+JS_FEATURES         = {{ js_features | tojson }}        # e.g. ["mobile-menu", "form-validation"]
+LAYOUT_CONSTRAINTS  = {{ layout_constraints | tojson }}  # e.g. {"max_width": "1200px", "responsive": true}
+
+# ── Output paths ──────────────────────────────────────────────────────
+HTML_PATH      = os.path.join(OUTPUT_DIR, "index.html")
+CSS_PATH       = os.path.join(OUTPUT_DIR, "style.css")
+JS_PATH        = os.path.join(OUTPUT_DIR, "script.js")
+ASSETS_DIR     = os.path.join(OUTPUT_DIR, "assets")
+METADATA_PATH  = os.path.join(OUTPUT_DIR, "metadata.json")
+
+# ── Helpers ───────────────────────────────────────────────────────────
+
+def ensure_output_dir() -> None:
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(ASSETS_DIR, exist_ok=True)
+
+def write_file(path: str, content: str) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"[+] Written: {path}")
+
+def read_file(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+def write_json(path: str, data: dict | list) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    print(f"[+] Written: {path}")
+
+def save_metadata(status: str, files: list | None = None, error: str | None = None) -> None:
+    meta = {
+        "run_id": RUN_ID,
+        "domain": DOMAIN,
+        "goal": GOAL,
+        "site_name": SITE_NAME,
+        "site_description": SITE_DESCRIPTION,
+        "pages": PAGES,
+        "sections": SECTIONS,
+        "js_features": JS_FEATURES,
+        "files_generated": files or [],
+        "status": status,
+        "error": error,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    write_json(METADATA_PATH, meta)
+
+# ── Builder Injection Functions ───────────────────────────────────────
+
+def generate_html() -> str:
+    """
+    Generate the HTML structure for the website.
+    Builder injects the full HTML content here.
+    """
+
+    """BUILDER_INJECT:generate_html"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{SITE_NAME}</title>
+    <meta name="description" content="{SITE_DESCRIPTION}">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="site-shell">
+        {% for section in sections %}
+        <section id="{{ section }}">
+            <!-- BUILDER_INJECT:section_{{ loop.index }} -->
+        </section>
+        {% endfor %}
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>"""
+    return html
+
+def generate_css() -> str:
+    """
+    Generate the CSS stylesheet for the website.
+    Builder injects the full CSS content here.
+    """
+
+    """BUILDER_INJECT:generate_css"""
+
+    primary = STYLE_TOKENS.get("primary", "#3C3489")
+    secondary = STYLE_TOKENS.get("secondary", "#085041")
+    font = STYLE_TOKENS.get("font", "Inter, sans-serif")
+    max_width = LAYOUT_CONSTRAINTS.get("max_width", "1200px")
+
+    css = f"""/* AgentForge — {SITE_NAME} */
+/* Generated: {datetime.now(timezone.utc).isoformat()} */
+
+:root {{
+    --primary: {primary};
+    --secondary: {secondary};
+    --font: {font};
+    --max-width: {max_width};
+}}
+
+*, *::before, *::after {{
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}}
+
+body {{
+    font-family: var(--font);
+    color: #1a1a1a;
+    line-height: 1.6;
+}}
+
+.site-shell {{
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0 1.5rem;
+}}
+
+{% for section in sections %}
+/* ── {{ section }} ── */
+#{{ section }} {{
+    /* BUILDER_INJECT:css_section_{{ loop.index }} */
+}}
+{% endfor %}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {{
+    /* BUILDER_INJECT:css_responsive */
+}}
+"""
+    return css
+
+def generate_js() -> str:
+    """
+    Generate JavaScript for the website.
+    Builder injects the full JS content here.
+    """
+
+    """BUILDER_INJECT:generate_js"""
+
+    js = f"""// AgentForge — {SITE_NAME}
+// Generated: {datetime.now(timezone.utc).isoformat()}
+// Features: {", ".join(JS_FEATURES)}
+
+document.addEventListener("DOMContentLoaded", () => {{
+
+    {% if 'mobile-menu' in js_features %}
+    // Mobile menu
+    /* BUILDER_INJECT:js_mobile_menu */
+    {% endif %}
+
+    {% if 'form-validation' in js_features %}
+    // Form validation
+    /* BUILDER_INJECT:js_form_validation */
+    {% endif %}
+
+    {% if 'smooth-scroll' in js_features %}
+    // Smooth scroll
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {{
+        anchor.addEventListener("click", e => {{
+            e.preventDefault();
+            document.querySelector(anchor.getAttribute("href"))
+                ?.scrollIntoView({{ behavior: "smooth" }});
+        }});
+    }});
+    {% endif %}
+
+    /* BUILDER_INJECT:js_additional_features */
+
+}});
+"""
+    return js
+
+# ── Step Execution Functions ──────────────────────────────────────────
+
+{% for step in steps %}
+
+def execute_step_{{ loop.index }}():
+    """
+    Step {{ loop.index }}/{{ steps | length }}
+
+    {{ step }}
+    """
+
+    """BUILDER_INJECT:step_{{ loop.index }}"""
+
+
+{% endfor %}
+
+# ── Runner ────────────────────────────────────────────────────────────
+
+def run() -> None:
+    ensure_output_dir()
+
+    print(f"[AgentForge:{DOMAIN}] run_id={RUN_ID}")
+    print(f"[AgentForge:{DOMAIN}] site={SITE_NAME}")
+    print(f"[AgentForge:{DOMAIN}] steps={len(STEPS)}")
+
+    try:
+        step_results = {}
+
+        {% for step in steps %}
+        print(f"[Step {{ loop.index }}] {{ step }}")
+        step_results["step_{{ loop.index }}"] = execute_step_{{ loop.index }}()
+        {% endfor %}
+
+        html = generate_html()
+        css = generate_css()
+        js = generate_js()
+
+        write_file(HTML_PATH, html)
+        write_file(CSS_PATH, css)
+        write_file(JS_PATH, js)
+
+        files_generated = [HTML_PATH, CSS_PATH, JS_PATH]
+        save_metadata("completed", files=files_generated)
+        print(f"[AgentForge:{DOMAIN}] Done. Output: {OUTPUT_DIR}")
+
+    except Exception as exc:
+        save_metadata("failed", error=str(exc))
+        raise
+
+if __name__ == "__main__":
+    run()
