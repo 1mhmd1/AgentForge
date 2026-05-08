@@ -17,3 +17,9 @@ Thumbs.db
 
 postgres_data/
 *.db
+
+# Python virtual environments
+venv/
+.venv/
+env/
+ENV/
