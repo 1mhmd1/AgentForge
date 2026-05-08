@@ -15,6 +15,7 @@ model User {
   email        String    @unique
   name         String?
   role         Role      @default(USER)
+  status       UserStatus @default(ACTIVE)
 
   // Email/Password auth
   passwordHash String?   // null if user signed up with Google
@@ -26,6 +27,7 @@ model User {
   updatedAt    DateTime  @updatedAt
 
   sessions     Session[]
+  subscriptions Subscription[]
 
   @@map("users")
 }
@@ -118,6 +120,49 @@ model AgentRun {
 }
 
 // ─────────────────────────────────────────
+// PLAN
+// ─────────────────────────────────────────
+model Plan {
+  id          String           @id @default(cuid())
+  name        String
+  slug        String           @unique
+  description String?
+  price       Float
+  currency    String           @default("USD")
+  interval    PlanInterval     @default(MONTHLY)
+  features    Json
+  maxRuns     Int              @default(100)
+  maxAgents   Int              @default(5)
+  active      Boolean          @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+// ─────────────────────────────────────────
+// SUBSCRIPTION
+// ─────────────────────────────────────────
+model Subscription {
+  id         String             @id @default(cuid())
+  userId     String
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId     String
+  plan       Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+  status     SubscriptionStatus @default(PENDING)
+  startedAt  DateTime           @default(now())
+  expiresAt  DateTime
+  canceledAt DateTime?
+
+  @@index([userId])
+  @@index([planId])
+  @@map("subscriptions")
+}
+
+// ─────────────────────────────────────────
 // ENUMS
 // ─────────────────────────────────────────
 enum Role {
@@ -150,4 +195,22 @@ enum AgentRunStatus {
   RUNNING
   COMPLETED
   FAILED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  EXPIRED
+  PENDING
+}
+
+enum PlanInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
 }
