@@ -7,15 +7,18 @@ from nodes.sub_agent import execute_sub_agent
 from services.template_loader import load_template
 from services.template_renderer import render_template
 from services.code_injector import inject_code
+from services.snippet_validator import score_quality
 from services.file_writer import write_generated_agent
 from services.errors import ERROR_CODES, SUPPORTED_DOMAINS
 
 logger = logging.getLogger(__name__)
 
 STAGE_VALIDATION = "VALIDATION"
+STAGE_EXECUTION_PLANNING = "EXECUTION_PLANNING"
 STAGE_TEMPLATE_LOADING = "TEMPLATE_LOADING"
 STAGE_TEMPLATE_RENDERING = "TEMPLATE_RENDERING"
 STAGE_CODE_INJECTION = "CODE_INJECTION"
+STAGE_QUALITY_VALIDATION = "QUALITY_VALIDATION"
 STAGE_SYNTAX_VALIDATION = "SYNTAX_VALIDATION"
 STAGE_FILE_WRITING = "FILE_WRITING"
 
@@ -163,6 +166,8 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
     logger.info("builder_validation_success", extra={"run_id": next_state.get("run_id")})
 
     # Phase 2: execution planning
+    next_state = _enter_stage(next_state, STAGE_EXECUTION_PLANNING)
+    logger.info("builder_execution_planning_start", extra={"run_id": next_state.get("run_id")})
     step_map: dict[str, dict[str, Any]] = {}
     execution_order: list[str] = []
 
@@ -189,7 +194,7 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
                 next_state,
                 "step_consistency_failed",
                 details={"step_id": step_id},
-                stage=STAGE_VALIDATION,
+                stage=STAGE_EXECUTION_PLANNING,
             )
         step_data = step_map[step_id]
         result = execute_sub_agent(
@@ -207,10 +212,12 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
                 next_state,
                 f"sub_agent_failed_{step_id}",
                 details={"step_id": step_id},
-                stage=STAGE_VALIDATION,
+                stage=STAGE_EXECUTION_PLANNING,
             )
 
     next_state["sub_agent_results"] = sub_agent_results
+    next_state = _complete_stage(next_state, STAGE_EXECUTION_PLANNING)
+    logger.info("builder_execution_planning_success", extra={"run_id": next_state.get("run_id")})
 
     domain = next_state.get("domain")
     next_state = _enter_stage(next_state, STAGE_TEMPLATE_LOADING)
@@ -277,6 +284,16 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
         )
     next_state = _complete_stage(next_state, STAGE_CODE_INJECTION)
     logger.info("builder_code_injection_success", extra={"run_id": next_state.get("run_id")})
+
+    next_state = _enter_stage(next_state, STAGE_QUALITY_VALIDATION)
+    logger.info("builder_quality_validation_start", extra={"run_id": next_state.get("run_id")})
+    try:
+        next_state["quality_score"] = score_quality(final_code, next_state.get("domain"))
+    except Exception as exc:
+        logger.warning("builder_quality_validation_failed", extra={"run_id": next_state.get("run_id"), "reason": str(exc)})
+        next_state["quality_score"] = None
+    next_state = _complete_stage(next_state, STAGE_QUALITY_VALIDATION)
+    logger.info("builder_quality_validation_success", extra={"run_id": next_state.get("run_id")})
 
     next_state = _enter_stage(next_state, STAGE_SYNTAX_VALIDATION)
     logger.info("builder_syntax_validation_start", extra={"run_id": next_state.get("run_id")})

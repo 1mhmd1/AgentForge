@@ -6,9 +6,11 @@ from state.State import initial_state
 from nodes.builder import (
     builder_node,
     STAGE_VALIDATION,
+    STAGE_EXECUTION_PLANNING,
     STAGE_TEMPLATE_LOADING,
     STAGE_TEMPLATE_RENDERING,
     STAGE_CODE_INJECTION,
+    STAGE_QUALITY_VALIDATION,
     STAGE_SYNTAX_VALIDATION,
     STAGE_FILE_WRITING,
 )
@@ -90,9 +92,11 @@ def valid_website_spec() -> None:
     assert built.get("current_stage") == STAGE_FILE_WRITING
     assert built.get("completed_stages") == [
         STAGE_VALIDATION,
+        STAGE_EXECUTION_PLANNING,
         STAGE_TEMPLATE_LOADING,
         STAGE_TEMPLATE_RENDERING,
         STAGE_CODE_INJECTION,
+        STAGE_QUALITY_VALIDATION,
         STAGE_SYNTAX_VALIDATION,
         STAGE_FILE_WRITING,
     ]
@@ -136,7 +140,11 @@ def broken_template() -> None:
     assert built.get("status") == "failed"
     assert str(built.get("final_error", "")).startswith(ERROR_CODES["RENDER_ERROR"])
     assert built.get("current_stage") == STAGE_TEMPLATE_RENDERING
-    assert built.get("completed_stages") == [STAGE_VALIDATION, STAGE_TEMPLATE_LOADING]
+    assert built.get("completed_stages") == [
+        STAGE_VALIDATION,
+        STAGE_EXECUTION_PLANNING,
+        STAGE_TEMPLATE_LOADING,
+    ]
     assert built.get("error_stage") == STAGE_TEMPLATE_RENDERING
     print("status:", built.get("status"))
     print("final_error:", built.get("final_error"))
@@ -153,7 +161,10 @@ def empty_template() -> None:
     assert built.get("status") == "failed"
     assert built.get("final_error") == ERROR_CODES["TEMPLATE_EMPTY"]
     assert built.get("current_stage") == STAGE_TEMPLATE_LOADING
-    assert built.get("completed_stages") == [STAGE_VALIDATION]
+    assert built.get("completed_stages") == [
+        STAGE_VALIDATION,
+        STAGE_EXECUTION_PLANNING,
+    ]
     assert built.get("error_stage") == STAGE_TEMPLATE_LOADING
     print("status:", built.get("status"))
     print("final_error:", built.get("final_error"))
@@ -176,6 +187,7 @@ def missing_injection_marker() -> None:
     assert built.get("current_stage") == STAGE_CODE_INJECTION
     assert built.get("completed_stages") == [
         STAGE_VALIDATION,
+        STAGE_EXECUTION_PLANNING,
         STAGE_TEMPLATE_LOADING,
         STAGE_TEMPLATE_RENDERING,
     ]
@@ -203,9 +215,11 @@ def invalid_python_after_injection() -> None:
     assert built.get("current_stage") == STAGE_SYNTAX_VALIDATION
     assert built.get("completed_stages") == [
         STAGE_VALIDATION,
+        STAGE_EXECUTION_PLANNING,
         STAGE_TEMPLATE_LOADING,
         STAGE_TEMPLATE_RENDERING,
         STAGE_CODE_INJECTION,
+        STAGE_QUALITY_VALIDATION,
     ]
     assert built.get("error_stage") == STAGE_SYNTAX_VALIDATION
     print("status:", built.get("status"))
@@ -244,7 +258,10 @@ def missing_template_file() -> None:
     assert built.get("status") == "failed"
     assert str(built.get("final_error", "")).startswith(ERROR_CODES["TEMPLATE_NOT_FOUND"])
     assert built.get("current_stage") == STAGE_TEMPLATE_LOADING
-    assert built.get("completed_stages") == [STAGE_VALIDATION]
+    assert built.get("completed_stages") == [
+        STAGE_VALIDATION,
+        STAGE_EXECUTION_PLANNING,
+    ]
     assert built.get("error_stage") == STAGE_TEMPLATE_LOADING
     print("status:", built.get("status"))
     print("final_error:", built.get("final_error"))
