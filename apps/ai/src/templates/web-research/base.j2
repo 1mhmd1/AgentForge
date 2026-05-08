@@ -4,20 +4,33 @@ from datetime import datetime, timezone
 
 # ── Injected by Builder ───────────────────────────────────────────────
 RUN_ID           = "{{ run_id }}"
-OUTPUT_DIR       = "{{ output_dir }}"
+OUTPUT_DIR       = "{{ output_dir | default('output') }}"
+DOMAIN           = "{{ domain }}"
 GOAL             = "{{ goal }}"
 COMPLEXITY       = "{{ complexity }}"
 SUCCESS_CRITERIA = "{{ success_criteria }}"
 STEPS            = {{ steps | tojson }}
 TOOLS            = {{ tools | tojson }}
 
+INPUTS           = {{ inputs | default([]) | tojson }}
+OUTPUTS          = {{ outputs | default([]) | tojson }}
+
+{% set search_terms = search_terms | default([]) %}
+{% set required_sections = required_sections | default([]) %}
+
 # Domain-specific
-TOPIC            = "{{ topic }}"
-RESEARCH_QUESTION = "{{ research_question }}"
-SEARCH_TERMS     = {{ search_terms | tojson }}
-REQUIRED_SECTIONS = {{ required_sections | tojson }}
-OUTPUT_FORMAT    = "{{ output_format }}"   # "markdown" | "json" | "both"
-MAX_SOURCES      = {{ max_sources | default(10) }}
+def get_input(name: str, default=None):
+    for item in INPUTS:
+        if item.get("name") == name:
+            return item.get("value", default)
+    return default
+
+TOPIC             = get_input("topic", "")
+RESEARCH_QUESTION = get_input("research_question", "")
+SEARCH_TERMS      = get_input("search_terms", [])
+REQUIRED_SECTIONS = get_input("required_sections", [])
+OUTPUT_FORMAT     = get_input("output_format", "markdown")
+MAX_SOURCES       = get_input("max_sources", 10)
 
 # ── Output paths ──────────────────────────────────────────────────────
 REPORT_PATH      = os.path.join(OUTPUT_DIR, "report.md")
@@ -65,7 +78,7 @@ def collect_sources() -> list[dict]:
     Builder injects search logic here based on tools: {{ tools | join(', ') }}
     """
     sources = []
-    # {{ builder_inject: search_and_scrape }}
+    """BUILDER_INJECT:search_and_scrape"""
     return sources
 
 def extract_findings(sources: list[dict]) -> list[dict]:
@@ -75,7 +88,7 @@ def extract_findings(sources: list[dict]) -> list[dict]:
     Builder injects extraction logic here.
     """
     findings = []
-    # {{ builder_inject: extract_findings }}
+    """BUILDER_INJECT:extract_findings"""
     return findings
 
 def build_report(findings: list[dict]) -> str:
@@ -108,15 +121,15 @@ def build_report(findings: list[dict]) -> str:
 
 def run() -> None:
     ensure_output_dir()
-    print(f"[AgentForge:web_research] run_id={RUN_ID}")
-    print(f"[AgentForge:web_research] topic={TOPIC}")
+    print(f"[AgentForge:{DOMAIN}] run_id={RUN_ID}")
+    print(f"[AgentForge:{DOMAIN}] topic={TOPIC}")
     print(f"[AgentForge:web_research] steps={len(STEPS)}")
 
     try:
         {% for step in steps %}
         # Step {{ loop.index }}/{{ steps | length }}: {{ step }}
         print(f"[Step {{ loop.index }}] {{ step }}")
-        # {{ builder_inject: step_{{ loop.index }} }}
+        """BUILDER_INJECT:step_{{ loop.index }}"""
         {% endfor %}
 
         sources  = collect_sources()

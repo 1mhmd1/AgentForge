@@ -3,20 +3,20 @@ import json
 from datetime import datetime, timezone
 
 # ── Injected by Builder ───────────────────────────────────────────────
-RUN_ID           = "{{ run_id }}"
-OUTPUT_DIR       = "{{ output_dir | default('output') }}"
-DOMAIN           = "{{ domain }}"
-GOAL             = "{{ goal }}"
-COMPLEXITY       = "{{ complexity }}"
-SUCCESS_CRITERIA = "{{ success_criteria }}"
-STEPS            = {{ steps | tojson }}
-TOOLS            = {{ tools | tojson }}
+RUN_ID           = "ui_121d3eb0"
+OUTPUT_DIR       = "output"
+DOMAIN           = "document"
+GOAL             = "Create a technical report on cloud architecture best practices"
+COMPLEXITY       = "medium"
+SUCCESS_CRITERIA = "A comprehensive technical report on cloud architecture best practices"
+STEPS            = ["Research current cloud architecture best practices", "Gather relevant information from credible sources", "Organize findings into a structured report", "Summarize key takeaways and recommendations"]
+TOOLS            = ["search", "scrape", "summarize"]
 
-{% set sections = sections | default([]) %}
-{% set formatting_rules = formatting_rules | default([]) %}
 
-INPUTS           = {{ inputs | default([]) | tojson }}
-OUTPUTS          = {{ outputs | default([]) | tojson }}
+
+
+INPUTS           = []
+OUTPUTS          = []
 
 # ── Domain-specific (document) ────────────────────────────────────────
 def get_input(name: str, default=None):
@@ -82,7 +82,7 @@ def load_documents() -> list[dict]:
     """
     documents = []
 
-    """BUILDER_INJECT:load_documents"""
+    
 
     return documents
 
@@ -94,25 +94,79 @@ def transform_document(doc: dict) -> dict:
     """
     transformed = doc.copy()
 
-    """BUILDER_INJECT:transform_document"""
+    
 
     return transformed
 
 # ── Step Execution Functions ──────────────────────────────────────────
 
-{% for step in steps %}
 
-def execute_step_{{ loop.index }}():
+
+def execute_step_1():
     """
-    Step {{ loop.index }}/{{ steps | length }}
+    Step 1/4
 
-    {{ step }}
+    Research current cloud architecture best practices
     """
 
-    """BUILDER_INJECT:step_{{ loop.index }}"""
+    import requests
+from bs4 import BeautifulSoup
+url = 'https://www.cloudarchitecturebestpractices.com'
+response = requests.get(url)
+page_content = response.content
+soup = BeautifulSoup(page_content, 'html.parser')
 
 
-{% endfor %}
+
+
+
+def execute_step_2():
+    """
+    Step 2/4
+
+    Gather relevant information from credible sources
+    """
+
+    import requests
+from bs4 import BeautifulSoup
+url = 'https://www.crediblesources.com'
+response = requests.get(url)
+page_content = response.content
+soup = BeautifulSoup(page_content, 'html.parser')
+
+
+
+
+
+def execute_step_3():
+    """
+    Step 3/4
+
+    Organize findings into a structured report
+    """
+
+    import pandas as pd
+report = pd.DataFrame()
+# Add findings to the report
+
+
+
+
+
+def execute_step_4():
+    """
+    Step 4/4
+
+    Summarize key takeaways and recommendations
+    """
+
+    import pandas as pd
+report = pd.DataFrame()
+# Add key takeaways and recommendations to the report
+
+
+
+
 
 # ── Report Builder ────────────────────────────────────────────────────
 
@@ -140,12 +194,7 @@ def build_report(documents: list[dict], transformed: list[dict]) -> str:
     lines.append(f"- Transformed documents: {len(transformed)}")
     lines.append("")
 
-    {% for section in sections %}
-    lines.append("## {{ section }}")
-    lines.append("")
-    lines.append("<!-- BUILDER_INJECT:section_{{ loop.index }} -->")
-    lines.append("")
-    {% endfor %}
+    
 
     lines.append("---")
     lines.append("")
@@ -165,10 +214,19 @@ def run() -> None:
     try:
         step_results = {}
 
-        {% for step in steps %}
-        print(f"[Step {{ loop.index }}] {{ step }}")
-        step_results["step_{{ loop.index }}"] = execute_step_{{ loop.index }}()
-        {% endfor %}
+        
+        print(f"[Step 1] Research current cloud architecture best practices")
+        step_results["step_1"] = execute_step_1()
+        
+        print(f"[Step 2] Gather relevant information from credible sources")
+        step_results["step_2"] = execute_step_2()
+        
+        print(f"[Step 3] Organize findings into a structured report")
+        step_results["step_3"] = execute_step_3()
+        
+        print(f"[Step 4] Summarize key takeaways and recommendations")
+        step_results["step_4"] = execute_step_4()
+        
 
         documents = load_documents()
         transformed = [transform_document(doc) for doc in documents]

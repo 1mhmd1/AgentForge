@@ -18,3 +18,4 @@ Thumbs.db
 postgres_data/
 *.db
 venv
+.venv

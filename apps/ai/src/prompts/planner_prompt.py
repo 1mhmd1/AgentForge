@@ -11,14 +11,14 @@ OUTPUT FORMAT (REQUIRED)
 
 Return ONLY a valid JSON object with EXACTLY these keys:
 
-{
+{{
   "goal": string,
   "domain": string,
   "steps": [string, string, ...],
   "tools": [string, string, ...],
   "success_criteria": string,
   "complexity": string
-}
+}}
 
 DO NOT:
 - Add extra keys
@@ -112,8 +112,8 @@ STRICT RULES
 3. NO comments inside JSON
 4. NO explanations before or after JSON
 5. NO markdown code fences like ```json
-6. NO text before the opening {
-7. NO text after the closing }
+6. NO text before the opening {{
+7. NO text after the closing }}
 8. ALL strings must use double quotes "
 9. steps MUST be an array of strings (not objects)
 10. tools MUST be an array of strings
@@ -161,7 +161,7 @@ GOOD STEP:
 EXAMPLE OUTPUT 1
 ========================
 
-{
+{{
   "goal": "Find and summarize latest AI news",
   "domain": "web_research",
   "steps": [
@@ -173,13 +173,13 @@ EXAMPLE OUTPUT 1
   "tools": ["search", "scrape", "summarize"],
   "success_criteria": "A clear summary of recent AI news from at least 5 reliable sources",
   "complexity": "medium"
-}
+}}
 
 ========================
 EXAMPLE OUTPUT 2
 ========================
 
-{
+{{
   "goal": "Convert CSV data to JSON format",
   "domain": "data_transform",
   "steps": [
@@ -191,13 +191,13 @@ EXAMPLE OUTPUT 2
   "tools": ["analyze", "code", "validate"],
   "success_criteria": "Valid JSON file containing all data from the original CSV",
   "complexity": "simple"
-}
+}}
 
 ========================
 EXAMPLE OUTPUT 3
 ========================
 
-{
+{{
   "goal": "Build a landing page for a coffee shop",
   "domain": "website_builder",
   "steps": [
@@ -210,7 +210,7 @@ EXAMPLE OUTPUT 3
   "tools": ["generate", "code"],
   "success_criteria": "A fully functional HTML landing page with menu, contact form, and map",
   "complexity": "medium"
-}
+}}
 
 ========================
 USER INPUT

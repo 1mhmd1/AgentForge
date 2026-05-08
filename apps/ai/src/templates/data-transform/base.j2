@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 # ── Injected by Builder ───────────────────────────────────────────────
 RUN_ID              = "{{ run_id }}"
-OUTPUT_DIR          = "{{ output_dir }}"
+OUTPUT_DIR          = "{{ output_dir | default('output') }}"
 DOMAIN              = "{{ domain }}"
 GOAL                = "{{ goal }}"
 COMPLEXITY          = "{{ complexity }}"
@@ -12,14 +12,27 @@ SUCCESS_CRITERIA    = "{{ success_criteria }}"
 STEPS               = {{ steps | tojson }}
 TOOLS               = {{ tools | tojson }}
 
+{% set transformations = transformations | default([]) %}
+{% set column_mapping = column_mapping | default({}) %}
+{% set validation_rules = validation_rules | default([]) %}
+
+INPUTS              = {{ inputs | default([]) | tojson }}
+OUTPUTS             = {{ outputs | default([]) | tojson }}
+
 # ── Domain-specific (data_transform) ──────────────────────────────────
-INPUT_SCHEMA        = {{ input_schema | tojson }}
-OUTPUT_SCHEMA       = {{ output_schema | tojson }}
-TRANSFORMATIONS     = {{ transformations | tojson }}
-COLUMN_MAPPING      = {{ column_mapping | tojson }}
-VALIDATION_RULES    = {{ validation_rules | tojson }}
-INPUT_FILE_FORMAT   = "{{ input_file_format }}"    # "csv" | "json" | "jsonl" | "tsv"
-OUTPUT_FILE_FORMAT  = "{{ output_file_format }}"   # "csv" | "json" | "jsonl" | "parquet"
+def get_input(name: str, default=None):
+    for item in INPUTS:
+        if item.get("name") == name:
+            return item.get("value", default)
+    return default
+
+INPUT_SCHEMA        = get_input("input_schema", {})
+OUTPUT_SCHEMA       = get_input("output_schema", {})
+TRANSFORMATIONS     = get_input("transformations", [])
+COLUMN_MAPPING      = get_input("column_mapping", {})
+VALIDATION_RULES    = get_input("validation_rules", [])
+INPUT_FILE_FORMAT   = get_input("input_file_format", "csv")    # "csv" | "json" | "jsonl" | "tsv"
+OUTPUT_FILE_FORMAT  = get_input("output_file_format", "csv")   # "csv" | "json" | "jsonl" | "parquet"
 
 # ── Output paths ──────────────────────────────────────────────────────
 INPUT_DIR             = os.path.join(OUTPUT_DIR, "input")

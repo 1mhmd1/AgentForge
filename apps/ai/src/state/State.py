@@ -1,4 +1,4 @@
-from typing import TypedDict, Optional, Literal
+from typing import TypedDict, Optional, Literal, Any
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -66,10 +66,15 @@ class AgentForgeState(TypedDict):
 
     step_map: Optional[dict[str, ExecutionStep]]
     execution_order: Optional[list[str]]
+    sub_agent_results: Optional[dict[str, Any]]
 
     template_path: Optional[str]
     generated_code: Optional[str]
     output_path: Optional[str]
+
+    current_stage: Optional[str]
+    completed_stages: Optional[list[str]]
+    error_stage: Optional[str]
 
     validation_errors: list[str]
     repair_attempts: int
@@ -80,9 +85,12 @@ class AgentForgeState(TypedDict):
     semantic_score: Optional[float]
 
     final_error: Optional[str]
+    final_error_details: Optional[dict[str, Any]]
 
     created_at: str
-    completed_at: Optional[str]
+    started_at: Optional[float]
+    build_duration_seconds: Optional[float]
+    completed_at: Optional[float]
 
 
 # ===== INITIAL STATE =====
@@ -100,10 +108,15 @@ def initial_state(run_id: str, user_prompt: str) -> AgentForgeState:
 
         step_map=None,
         execution_order=None,
+        sub_agent_results=None,
 
         template_path=None,
         generated_code=None,
         output_path=None,
+
+    current_stage=None,
+    completed_stages=[],
+    error_stage=None,
 
         validation_errors=[],
         repair_attempts=0,
@@ -114,7 +127,10 @@ def initial_state(run_id: str, user_prompt: str) -> AgentForgeState:
         semantic_score=None,
 
         final_error=None,
+        final_error_details=None,
 
         created_at=datetime.utcnow().isoformat() + "Z",
+        started_at=None,
+        build_duration_seconds=None,
         completed_at=None,
     )

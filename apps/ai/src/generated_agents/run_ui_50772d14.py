@@ -3,23 +3,23 @@ import json
 from datetime import datetime, timezone
 
 # ── Injected by Builder ───────────────────────────────────────────────
-RUN_ID           = "{{ run_id }}"
-OUTPUT_DIR       = "{{ output_dir | default('output') }}"
-DOMAIN           = "{{ domain }}"
-GOAL             = "{{ goal }}"
-COMPLEXITY       = "{{ complexity }}"
-SUCCESS_CRITERIA = "{{ success_criteria }}"
-STEPS            = {{ steps | tojson }}
-TOOLS            = {{ tools | tojson }}
+RUN_ID           = "ui_50772d14"
+OUTPUT_DIR       = "output"
+DOMAIN           = "website_builder"
+GOAL             = "Build a landing page for a coffee shop"
+COMPLEXITY       = "medium"
+SUCCESS_CRITERIA = "A fully functional HTML landing page with menu, contact form, and map"
+STEPS            = ["Design page layout with hero section", "Add menu section with coffee items", "Create contact form", "Add location map", "Style with responsive CSS"]
+TOOLS            = ["generate", "code"]
 
-{% set pages = pages | default([]) %}
-{% set sections = sections | default([]) %}
-{% set style_tokens = style_tokens | default({}) %}
-{% set js_features = js_features | default([]) %}
-{% set layout_constraints = layout_constraints | default({}) %}
 
-INPUTS           = {{ inputs | default([]) | tojson }}
-OUTPUTS          = {{ outputs | default([]) | tojson }}
+
+
+
+
+
+INPUTS           = []
+OUTPUTS          = []
 
 # ── Domain-specific (website_builder) ────────────────────────────────
 def get_input(name: str, default=None):
@@ -88,7 +88,7 @@ def generate_html() -> str:
     Builder injects the full HTML content here.
     """
 
-    """BUILDER_INJECT:generate_html"""
+    
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -101,11 +101,7 @@ def generate_html() -> str:
 </head>
 <body>
     <div class="site-shell">
-        {% for section in sections %}
-        <section id="{{ section }}">
-            <!-- BUILDER_INJECT:section_{{ loop.index }} -->
-        </section>
-        {% endfor %}
+        
     </div>
 
     <script src="script.js"></script>
@@ -119,7 +115,7 @@ def generate_css() -> str:
     Builder injects the full CSS content here.
     """
 
-    """BUILDER_INJECT:generate_css"""
+    
 
     primary = STYLE_TOKENS.get("primary", "#3C3489")
     secondary = STYLE_TOKENS.get("secondary", "#085041")
@@ -129,42 +125,37 @@ def generate_css() -> str:
     css = f"""/* AgentForge — {SITE_NAME} */
 /* Generated: {datetime.now(timezone.utc).isoformat()} */
 
-:root {{ '{{' }}
+:root {{
     --primary: {primary};
     --secondary: {secondary};
     --font: {font};
     --max-width: {max_width};
-{{ '}}' }}
+}}
 
-*, *::before, *::after {{ '{{' }}
+*, *::before, *::after {{
     box-sizing: border-box;
     margin: 0;
     padding: 0;
-{{ '}}' }}
+}}
 
-body {{ '{{' }}
+body {{
     font-family: var(--font);
     color: #1a1a1a;
     line-height: 1.6;
-{{ '}}' }}
+}}
 
-.site-shell {{ '{{' }}
+.site-shell {{
     max-width: var(--max-width);
     margin: 0 auto;
     padding: 0 1.5rem;
-{{ '}}' }}
+}}
 
-{% for section in sections %}
-/* ── {{ section }} ── */
-#{{ section }} {{ '{{' }}
-    /* BUILDER_INJECT:css_section_{{ loop.index }} */
-{{ '}}' }}
-{% endfor %}
+
 
 /* ── Responsive ── */
-@media (max-width: 768px) {{ '{{' }}
-    /* BUILDER_INJECT:css_responsive */
-{{ '}}' }}
+@media (max-width: 768px) {{
+    
+}}
 """
     return css
 
@@ -174,56 +165,89 @@ def generate_js() -> str:
     Builder injects the full JS content here.
     """
 
-    """BUILDER_INJECT:generate_js"""
+    
 
     js = f"""// AgentForge — {SITE_NAME}
 // Generated: {datetime.now(timezone.utc).isoformat()}
 // Features: {", ".join(JS_FEATURES)}
 
-document.addEventListener("DOMContentLoaded", () => {{ '{{' }}
+document.addEventListener("DOMContentLoaded", () => {{
 
-    {% if 'mobile-menu' in js_features %}
-    // Mobile menu
-    /* BUILDER_INJECT:js_mobile_menu */
-    {% endif %}
+    
 
-    {% if 'form-validation' in js_features %}
-    // Form validation
-    /* BUILDER_INJECT:js_form_validation */
-    {% endif %}
+    
 
-    {% if 'smooth-scroll' in js_features %}
-    // Smooth scroll
-    document.querySelectorAll('a[href^="#"]').forEach(anchor => {{ '{{' }}
-        anchor.addEventListener("click", e => {{ '{{' }}
-            e.preventDefault();
-            document.querySelector(anchor.getAttribute("href"))
-                ?.scrollIntoView({{ '{{' }} behavior: "smooth" {{ '}}' }});
-        {{ '}}' }});
-    {{ '}}' }});
-    {% endif %}
+    
 
-    /* BUILDER_INJECT:js_additional_features */
+    
 
-{{ '}}' }});
+}});
 """
     return js
 
 # ── Step Execution Functions ──────────────────────────────────────────
 
-{% for step in steps %}
 
-def execute_step_{{ loop.index }}():
+
+def execute_step_1():
     """
-    Step {{ loop.index }}/{{ steps | length }}
+    Step 1/5
 
-    {{ step }}
+    Design page layout with hero section
     """
 
-    """BUILDER_INJECT:step_{{ loop.index }}"""
+    hero_section = create_hero_section()
 
 
-{% endfor %}
+
+
+def execute_step_2():
+    """
+    Step 2/5
+
+    Add menu section with coffee items
+    """
+
+    menu_section = create_menu_section('coffee')
+
+
+
+
+def execute_step_3():
+    """
+    Step 3/5
+
+    Create contact form
+    """
+
+    contact_form = create_contact_form()
+
+
+
+
+def execute_step_4():
+    """
+    Step 4/5
+
+    Add location map
+    """
+
+    location_map = create_location_map()
+
+
+
+
+def execute_step_5():
+    """
+    Step 5/5
+
+    Style with responsive CSS
+    """
+
+    responsive_css = apply_responsive_css()
+
+
+
 
 # ── Runner ────────────────────────────────────────────────────────────
 
@@ -237,10 +261,22 @@ def run() -> None:
     try:
         step_results = {}
 
-        {% for step in steps %}
-        print(f"[Step {{ loop.index }}] {{ step }}")
-        step_results["step_{{ loop.index }}"] = execute_step_{{ loop.index }}()
-        {% endfor %}
+        
+        print(f"[Step 1] Design page layout with hero section")
+        step_results["step_1"] = execute_step_1()
+        
+        print(f"[Step 2] Add menu section with coffee items")
+        step_results["step_2"] = execute_step_2()
+        
+        print(f"[Step 3] Create contact form")
+        step_results["step_3"] = execute_step_3()
+        
+        print(f"[Step 4] Add location map")
+        step_results["step_4"] = execute_step_4()
+        
+        print(f"[Step 5] Style with responsive CSS")
+        step_results["step_5"] = execute_step_5()
+        
 
         html = generate_html()
         css = generate_css()
