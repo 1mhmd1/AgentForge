@@ -67,14 +67,14 @@ def validate_spec(spec: dict[str, Any]) -> tuple[bool, str | None]:
 def _init_run_audit() -> dict[str, Any]:
     return {
         "total_tokens": 0,
-        "agents_executed": [],
+        "agents_executed": 0,
         "provider_usage": {},
         "failed_step": None,
     }
 
 
 def _track_agent(audit: dict[str, Any], agent_id: str, provider: str, max_tokens: int) -> None:
-    audit["agents_executed"].append(agent_id)
+    audit["agents_executed"] += 1
     audit["total_tokens"] += max_tokens
     audit["provider_usage"][provider] = audit["provider_usage"].get(provider, 0) + 1
 
