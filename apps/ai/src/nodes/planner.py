@@ -46,13 +46,16 @@ def _extract_execution_plan(spec: dict[str, Any]) -> dict[str, Any] | None:
 def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     next_state = state.copy()
 
-    user_prompt = next_state.get("user_prompt", "")
+    optimized = next_state.get("optimized_prompt")
+    raw_user = next_state.get("user_prompt", "")
+    user_prompt = optimized if isinstance(optimized, str) and optimized.strip() else raw_user
     prompt = PLANNER_PROMPT.format(user_prompt=user_prompt)
 
     try:
-        raw = call_llm(prompt, max_tokens=500)
+        raw, planner_usage = call_llm(prompt, max_tokens=500)
         cleaned = _clean_json(raw)
         spec = json.loads(cleaned)
+        next_state["planner_usage"] = planner_usage
 
         # Domain override: user's choice takes priority
         domain = next_state.get("domain")
@@ -89,7 +92,13 @@ def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         next_state["execution_plan"] = execution_plan
         next_state["stage"] = "planning"
 
-    except Exception:
+    except Exception as exc:
         next_state["status"] = "failed"
+        next_state["stage"] = "planning"
+        next_state["final_error"] = "planner_failed"
+        next_state["final_error_details"] = {
+            "exception_type": type(exc).__name__,
+            "message": str(exc),
+        }
 
     return next_state

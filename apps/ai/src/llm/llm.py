@@ -1,10 +1,19 @@
 import os
+from typing import Any
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
-def call_llm(prompt: str, provider: str | None = None, max_tokens: int = 1024) -> str:
+def call_llm(
+    prompt: str, provider: str | None = None, max_tokens: int = 1024
+) -> tuple[str, dict[str, Any]]:
+    """
+    Call an LLM provider and return (text, usage).
+
+    usage shape: {"prompt_tokens": int, "completion_tokens": int, "total_tokens": int, "provider": str}
+    Providers that don't expose usage (e.g. gemini free tier) return zeros.
+    """
     if provider is None:
         provider = os.getenv("LLM_PROVIDER", "groq")
 
@@ -28,3 +37,12 @@ def call_llm(prompt: str, provider: str | None = None, max_tokens: int = 1024) -
 
     else:
         raise ValueError("Unknown LLM provider: " + provider)
+
+
+def _empty_usage(provider: str) -> dict[str, Any]:
+    return {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "provider": provider,
+    }

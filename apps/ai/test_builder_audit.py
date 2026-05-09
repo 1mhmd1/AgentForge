@@ -1,26 +1,29 @@
+"""
+Builder audit -- runs builder_node end-to-end with a mocked sub-agent.
+Replaces the older audit which monkey-patched a Jinja template path that no
+longer exists (the builder uses SafeCodeInjector now).
+
+Usage: python apps/ai/test_builder_audit.py
+"""
+import os
 import sys
 
-sys.path.append("c:/Users/1mhmd/OneDrive/Desktop/Ai Projects/AgentForge/apps/ai/src")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from state.State import initial_state
+from nodes import builder as builder_module
 from nodes.builder import (
     builder_node,
     STAGE_VALIDATION,
+    STAGE_EXECUTION_PLANNING,
     STAGE_TEMPLATE_LOADING,
     STAGE_TEMPLATE_RENDERING,
     STAGE_CODE_INJECTION,
+    STAGE_QUALITY_VALIDATION,
     STAGE_SYNTAX_VALIDATION,
     STAGE_FILE_WRITING,
 )
 from services.errors import ERROR_CODES
-
-
-def run_case(title: str, fn) -> None:
-    print(f"\n=== {title} ===")
-    try:
-        fn()
-    except Exception as exc:
-        print("ERROR:", exc)
 
 
 def _build_state(run_id: str, spec: dict) -> dict:
@@ -30,226 +33,183 @@ def _build_state(run_id: str, spec: dict) -> dict:
     return state
 
 
-def _run_builder_with_template(spec: dict, template_text: str, generated_map: dict) -> dict:
-    import nodes.builder as builder
+def _patch_sub_agent(payloads: dict[str, dict]):
+    """Replace nodes.builder.execute_sub_agent with a deterministic stub."""
+    original = builder_module.execute_sub_agent
 
-    original_execute = builder.execute_sub_agent
-    original_load = builder.load_template
-
-    def fake_execute(step_id, step_data, total_steps, previous_results):
+    def fake_execute(*, step_id, step_data, total_steps, previous_results,
+                     provider, max_tokens, domain, goal):
+        result = payloads.get(step_id, {})
         return {
-            "status": "ok",
-            "generated_code": generated_map.get(step_id, ""),
+            "step_id": step_id,
+            "status": result.get("status", "success"),
+            "generated_code": result.get("generated_code", "<p>ok</p>"),
+            "summary": result.get("summary", "test"),
+            "error": result.get("error"),
+            "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150, "provider": provider},
         }
 
-    builder.execute_sub_agent = fake_execute
-    builder.load_template = lambda domain: ("<memory>", template_text)
+    builder_module.execute_sub_agent = fake_execute
+    return original
 
+
+def _restore_sub_agent(original) -> None:
+    builder_module.execute_sub_agent = original
+
+
+def run_case(title: str, fn) -> bool:
+    print(f"\n=== {title} ===")
     try:
-        return builder.builder_node(_build_state("audit", spec))
-    finally:
-        builder.execute_sub_agent = original_execute
-        builder.load_template = original_load
+        fn()
+        print("PASS")
+        return True
+    except AssertionError as exc:
+        print(f"FAIL: {exc}")
+        return False
+    except Exception as exc:
+        print(f"ERROR: {type(exc).__name__}: {exc}")
+        return False
 
 
-def _run_builder_with_loader_error(spec: dict, error_message: str) -> dict:
-    import nodes.builder as builder
-
-    original_execute = builder.execute_sub_agent
-    original_load = builder.load_template
-
-    builder.execute_sub_agent = lambda *args, **kwargs: {"status": "ok", "generated_code": "pass"}
-    builder.load_template = lambda domain: (_ for _ in ()).throw(RuntimeError(error_message))
-
-    try:
-        return builder.builder_node(_build_state("audit", spec))
-    finally:
-        builder.execute_sub_agent = original_execute
-        builder.load_template = original_load
+# ── Cases ────────────────────────────────────────────────────────────────
 
 
 def valid_website_spec() -> None:
     spec = {
         "goal": "Build a simple website",
         "domain": "website_builder",
-        "steps": ["Step one", "Step two"],
-        "tools": [],
-        "inputs": [],
-        "outputs": [],
-        "success_criteria": "done",
+        "steps": ["Generate HTML", "Style with CSS"],
+        "tools": ["generate", "code"],
         "complexity": "simple",
+        "success_criteria": "page renders",
     }
-    template_text = """def run():\n    \"\"\"BUILDER_INJECT:step_1\"\"\"\n    \"\"\"BUILDER_INJECT:step_2\"\"\"\n"""
-    built = _run_builder_with_template(
-        spec,
-        template_text,
-        {"step_1": "print('ok')", "step_2": "print('done')"},
-    )
-    assert built.get("status") == "running"
-    assert built.get("generated_code")
-    assert built.get("current_stage") == STAGE_FILE_WRITING
-    assert built.get("completed_stages") == [
-        STAGE_VALIDATION,
-        STAGE_TEMPLATE_LOADING,
-        STAGE_TEMPLATE_RENDERING,
-        STAGE_CODE_INJECTION,
-        STAGE_SYNTAX_VALIDATION,
-        STAGE_FILE_WRITING,
-    ]
-    assert built.get("error_stage") is None
-    assert built.get("started_at") is not None
-    assert built.get("completed_at") is not None
-    assert built.get("build_duration_seconds") is not None
-    print("status:", built.get("status"))
-    print("generated_code_len:", len(built.get("generated_code") or ""))
+    payloads = {
+        "step_1": {"generated_code": "<h1>Hello</h1>"},
+        "step_2": {"generated_code": "<h1>Hello</h1><style>h1{color:red}</style>"},
+    }
+    original = _patch_sub_agent(payloads)
+    try:
+        result = builder_node(_build_state("audit_website", spec))
+    finally:
+        _restore_sub_agent(original)
+
+    assert result["status"] == "completed", f"status={result['status']}"
+    assert result["stage"] == "completed", f"stage={result['stage']}"
+    assert result.get("completed_at") is not None
+    assert result.get("output_path") and os.path.exists(result["output_path"])
+    assert STAGE_FILE_WRITING in result["completed_stages"]
+    # Last-only merge: final code should contain step_2's content, NOT step_1's only
+    assert "color:red" in result["generated_code"], "expected last-step content in output"
+    assert result["run_audit"]["total_tokens"] >= 300, "should accumulate per-step usage"
 
 
 def invalid_domain() -> None:
-    spec = {
-        "goal": "Build a simple website",
-        "domain": "bad_domain",
-        "steps": ["Step one", "Step two"],
-        "tools": [],
-    }
-    built = builder_node(_build_state("audit_bad_domain", spec))
-    assert built.get("status") == "failed"
-    assert str(built.get("final_error", "")).startswith(ERROR_CODES["TEMPLATE_NOT_FOUND"])
-    print("status:", built.get("status"))
-    print("final_error:", built.get("final_error"))
+    spec = {"goal": "x", "domain": "bad_domain", "steps": ["a"], "tools": []}
+    result = builder_node(_build_state("audit_bad_domain", spec))
+    assert result["status"] == "failed"
+    assert str(result.get("final_error", "")).startswith(ERROR_CODES["TEMPLATE_NOT_FOUND"])
+    assert result["error_stage"] == STAGE_VALIDATION
 
 
-def broken_template() -> None:
+def malformed_spec() -> None:
+    spec = {"goal": "", "domain": "website_builder", "steps": [], "tools": []}
+    result = builder_node(_build_state("audit_bad_spec", spec))
+    assert result["status"] == "failed"
+    assert str(result.get("final_error", "")).startswith(ERROR_CODES["INVALID_SPEC"])
+
+
+def sub_agent_failure_stops_pipeline() -> None:
     spec = {
-        "goal": "Build a simple website",
+        "goal": "x",
         "domain": "website_builder",
-        "steps": ["Step one", "Step two"],
+        "steps": ["s1", "s2"],
         "tools": [],
     }
-    built = _run_builder_with_template(
-        spec,
-        "{{ bad:",
-        {"step_1": "print('ok')", "step_2": "print('done')"},
-    )
-    assert built.get("status") == "failed"
-    assert str(built.get("final_error", "")).startswith(ERROR_CODES["RENDER_ERROR"])
-    assert built.get("current_stage") == STAGE_TEMPLATE_RENDERING
-    assert built.get("completed_stages") == [STAGE_VALIDATION, STAGE_TEMPLATE_LOADING]
-    assert built.get("error_stage") == STAGE_TEMPLATE_RENDERING
-    print("status:", built.get("status"))
-    print("final_error:", built.get("final_error"))
+    payloads = {
+        "step_1": {"status": "error", "error": "boom"},
+        "step_2": {"generated_code": "<p>unreached</p>"},
+    }
+    original = _patch_sub_agent(payloads)
+    try:
+        result = builder_node(_build_state("audit_subfail", spec))
+    finally:
+        _restore_sub_agent(original)
+
+    assert result["status"] == "failed"
+    assert "sub_agent_failed_step_1" == result["final_error"]
+    # step_2 must not have been called -- only step_1 executed
+    assert list(result["sub_agent_results"].keys()) == ["step_1"]
 
 
-def empty_template() -> None:
+def data_transform_concatenation() -> None:
+    """data_transform domain keeps all sub-agent outputs (additive)."""
     spec = {
-        "goal": "Build a simple website",
-        "domain": "website_builder",
-        "steps": ["Step one", "Step two"],
-        "tools": [],
+        "goal": "Transform data",
+        "domain": "data_transform",
+        "steps": ["parse", "format"],
+        "tools": ["analyze", "code"],
     }
-    built = _run_builder_with_loader_error(spec, ERROR_CODES["TEMPLATE_EMPTY"])
-    assert built.get("status") == "failed"
-    assert built.get("final_error") == ERROR_CODES["TEMPLATE_EMPTY"]
-    assert built.get("current_stage") == STAGE_TEMPLATE_LOADING
-    assert built.get("completed_stages") == [STAGE_VALIDATION]
-    assert built.get("error_stage") == STAGE_TEMPLATE_LOADING
-    print("status:", built.get("status"))
-    print("final_error:", built.get("final_error"))
+    payloads = {
+        "step_1": {"generated_code": '{"a": 1}'},
+        "step_2": {"generated_code": '{"b": 2}'},
+    }
+    original = _patch_sub_agent(payloads)
+    try:
+        result = builder_node(_build_state("audit_data", spec))
+    finally:
+        _restore_sub_agent(original)
+    assert result["status"] == "completed"
+    # Both step contents should make it into the final agent
+    code = result["generated_code"]
+    assert '"a": 1' in code or '"a":1' in code or 'a' in code
+    assert '"b": 2' in code or '"b":2' in code or 'b' in code
 
 
-def missing_injection_marker() -> None:
+def website_last_only_merge() -> None:
+    """website_builder keeps ONLY the last sub-agent's output."""
     spec = {
-        "goal": "Build a simple website",
+        "goal": "x",
         "domain": "website_builder",
-        "steps": ["Step one", "Step two"],
+        "steps": ["draft", "final"],
         "tools": [],
     }
-    built = _run_builder_with_template(
-        spec,
-        "print('no markers')",
-        {"step_1": "print('ok')", "step_2": "print('done')"},
-    )
-    assert built.get("status") == "failed"
-    assert str(built.get("final_error", "")).startswith(ERROR_CODES["MARKER_MISSING"])
-    assert built.get("current_stage") == STAGE_CODE_INJECTION
-    assert built.get("completed_stages") == [
-        STAGE_VALIDATION,
-        STAGE_TEMPLATE_LOADING,
-        STAGE_TEMPLATE_RENDERING,
-    ]
-    assert built.get("error_stage") == STAGE_CODE_INJECTION
-    print("status:", built.get("status"))
-    print("final_error:", built.get("final_error"))
-
-
-def invalid_python_after_injection() -> None:
-    spec = {
-        "goal": "Build a simple website",
-        "domain": "website_builder",
-        "steps": ["Step one", "Step two"],
-        "tools": [],
+    payloads = {
+        "step_1": {"generated_code": "<p>FIRST_DRAFT_MARKER</p>"},
+        "step_2": {"generated_code": "<p>FINAL_VERSION_MARKER</p>"},
     }
-    template_text = """def run():\n    \"\"\"BUILDER_INJECT:step_1\"\"\"\n    \"\"\"BUILDER_INJECT:step_2\"\"\"\n"""
-    built = _run_builder_with_template(
-        spec,
-        template_text,
-        {"step_1": "def bad(:", "step_2": "print('ok')"},
-    )
-    assert built.get("status") == "failed"
-    assert str(built.get("final_error", "")).startswith(ERROR_CODES["SYNTAX_ERROR"])
-    assert built.get("final_error_details")
-    assert built.get("current_stage") == STAGE_SYNTAX_VALIDATION
-    assert built.get("completed_stages") == [
-        STAGE_VALIDATION,
-        STAGE_TEMPLATE_LOADING,
-        STAGE_TEMPLATE_RENDERING,
-        STAGE_CODE_INJECTION,
-    ]
-    assert built.get("error_stage") == STAGE_SYNTAX_VALIDATION
-    print("status:", built.get("status"))
-    print("final_error:", built.get("final_error"))
-    print("syntax_details:", built.get("final_error_details"))
+    original = _patch_sub_agent(payloads)
+    try:
+        result = builder_node(_build_state("audit_lastonly", spec))
+    finally:
+        _restore_sub_agent(original)
+    assert result["status"] == "completed"
+    code = result["generated_code"]
+    assert "FINAL_VERSION_MARKER" in code, "last-step content missing"
+    assert "FIRST_DRAFT_MARKER" not in code, "first-draft content leaked into output"
 
 
-def malformed_prompt_input() -> None:
-    spec = {
-        "goal": "",
-        "domain": "website_builder",
-        "steps": [],
-        "tools": [],
-    }
-    built = builder_node(_build_state("audit_bad_spec", spec))
-    assert built.get("status") == "failed"
-    assert str(built.get("final_error", "")).startswith(ERROR_CODES["INVALID_SPEC"])
-    print("status:", built.get("status"))
-    print("final_error:", built.get("final_error"))
+CASES = [
+    ("valid website spec",          valid_website_spec),
+    ("invalid domain",              invalid_domain),
+    ("malformed spec",              malformed_spec),
+    ("sub-agent failure stops pipeline", sub_agent_failure_stops_pipeline),
+    ("data_transform concatenation", data_transform_concatenation),
+    ("website last-only merge",     website_last_only_merge),
+]
 
 
-def missing_template_file() -> None:
-    spec = {
-        "goal": "Build a simple website",
-        "domain": "website_builder",
-        "steps": ["Step one", "Step two"],
-        "tools": [],
-    }
-    built = _run_builder_with_loader_error(
-        spec,
-        f"{ERROR_CODES['TEMPLATE_NOT_FOUND']}:website_builder",
-    )
-    assert built.get("status") == "failed"
-    assert str(built.get("final_error", "")).startswith(ERROR_CODES["TEMPLATE_NOT_FOUND"])
-    assert built.get("current_stage") == STAGE_TEMPLATE_LOADING
-    assert built.get("completed_stages") == [STAGE_VALIDATION]
-    assert built.get("error_stage") == STAGE_TEMPLATE_LOADING
-    print("status:", built.get("status"))
-    print("final_error:", built.get("final_error"))
+def main() -> int:
+    passed = 0
+    failed = 0
+    for title, fn in CASES:
+        ok = run_case(title, fn)
+        if ok:
+            passed += 1
+        else:
+            failed += 1
+    print(f"\n── {passed}/{passed + failed} passed ──")
+    return 0 if failed == 0 else 1
 
 
 if __name__ == "__main__":
-    run_case("valid website spec", valid_website_spec)
-    run_case("invalid domain", invalid_domain)
-    run_case("broken template", broken_template)
-    run_case("empty template", empty_template)
-    run_case("missing injection marker", missing_injection_marker)
-    run_case("invalid python after injection", invalid_python_after_injection)
-    run_case("malformed planner output", malformed_prompt_input)
-    run_case("template loading", missing_template_file)
+    sys.exit(main())

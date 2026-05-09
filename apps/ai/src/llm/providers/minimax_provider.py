@@ -1,4 +1,5 @@
 import os
+from typing import Any
 import requests
 from dotenv import load_dotenv
 
@@ -9,7 +10,7 @@ def call_minimax(
     prompt: str,
     model: str = "abab6.5s-chat",
     max_tokens: int = 300,
-) -> str:
+) -> tuple[str, dict[str, Any]]:
     api_key = os.getenv("MINIMAX_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("MINIMAX_API_KEY is missing. Add it to .env")
@@ -43,6 +44,13 @@ def call_minimax(
         if not text:
             raise RuntimeError("MiniMax returned an empty response")
 
-        return text
+        u = data.get("usage", {}) or {}
+        usage = {
+            "prompt_tokens": int(u.get("prompt_tokens", 0) or 0),
+            "completion_tokens": int(u.get("completion_tokens", 0) or 0),
+            "total_tokens": int(u.get("total_tokens", 0) or 0),
+            "provider": "minimax",
+        }
+        return text, usage
     except requests.RequestException as exc:
         raise RuntimeError(f"MiniMax API error: {exc}") from exc

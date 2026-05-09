@@ -112,7 +112,7 @@ def _validate_response(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _compress_previous_output(previous_results: dict[str, Any]) -> str:
-    """Pass ONLY the last agent's summary + code snippet — not the full history."""
+    """Pass ONLY the last agent's summary + code snippet -- not the full history."""
     if not previous_results:
         return "none"
 
@@ -161,15 +161,25 @@ def execute_sub_agent(
     )
 
     last_error: Exception | None = None
+    accumulated_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "provider": provider}
+
+    def _accumulate(u: dict[str, Any]) -> None:
+        if not isinstance(u, dict):
+            return
+        accumulated_usage["prompt_tokens"] += int(u.get("prompt_tokens", 0) or 0)
+        accumulated_usage["completion_tokens"] += int(u.get("completion_tokens", 0) or 0)
+        accumulated_usage["total_tokens"] += int(u.get("total_tokens", 0) or 0)
 
     # Retry once only (2 attempts total)
-    for attempt in range(2):
+    for _attempt in range(2):
         try:
-            raw = call_llm(prompt, provider=provider, max_tokens=max_tokens)
+            raw, usage = call_llm(prompt, provider=provider, max_tokens=max_tokens)
+            _accumulate(usage)
             cleaned = _clean_response(raw)
             data = _extract_json(cleaned)
             validated = _validate_response(data)
             validated["step_id"] = step_id
+            validated["usage"] = accumulated_usage
 
             # If generated_code is empty but we have raw output, use it
             if not validated["generated_code"].strip() and cleaned:
@@ -182,7 +192,8 @@ def execute_sub_agent(
 
     # Final fallback: return raw LLM output as content if we got anything
     try:
-        raw = call_llm(prompt, provider=provider, max_tokens=max_tokens)
+        raw, usage = call_llm(prompt, provider=provider, max_tokens=max_tokens)
+        _accumulate(usage)
         if raw and raw.strip():
             return {
                 "step_id": step_id,
@@ -190,6 +201,7 @@ def execute_sub_agent(
                 "generated_code": raw.strip(),
                 "summary": "Raw output (JSON parsing failed)",
                 "error": None,
+                "usage": accumulated_usage,
             }
     except Exception:
         pass
@@ -200,4 +212,5 @@ def execute_sub_agent(
         "generated_code": "",
         "summary": "Sub-agent failed after all retries",
         "error": str(last_error) if last_error else "Unknown error",
+        "usage": accumulated_usage,
     }

@@ -14,36 +14,28 @@ class CodeSerializer:
 
     @staticmethod
     def serialize_python_string(content: str) -> str:
-        """
-        Serialize string content safely for Python code
-        Handles quotes, newlines, special characters
-        """
-        escaped = content.replace('"""', r'\"\"\"')
-        return f'"""{escaped}"""'
+        # Why json.dumps and not a triple-quoted wrapper: inputs ending in a
+        # double quote can collide with the closing triple-quote boundary.
+        # json.dumps always produces a valid double-quoted Python literal.
+        return json.dumps(content, ensure_ascii=False)
 
     @staticmethod
     def serialize_html(html: str) -> str:
         """
-        Serialize HTML safely for Python string
-        Prevents quote conflicts and indentation issues
+        Serialize HTML safely for Python string.
+        json.dumps gives one consistent encoding strategy regardless of input;
+        the previous mixed strategy (triple-quote vs. JSON) was a footgun.
         """
-        html = html.strip()
-        html = html.replace('"""', r'\"\"\"')
-
-        if "'''" not in html and '"""' not in html:
-            return f'"""{html}"""'
-        else:
-            return json.dumps(html)
+        return json.dumps(html.strip(), ensure_ascii=False)
 
     @staticmethod
     def serialize_css(css: str) -> str:
         """
-        Serialize CSS safely for Python string
-        Critical: CSS has {} which conflicts with f-strings
+        Serialize CSS safely for Python string.
+        CSS routinely contains {} and ", so json.dumps is the only encoding that
+        survives every input without escaping ambiguity.
         """
-        css = css.strip()
-        css = css.replace('"""', r'\"\"\"')
-        return f'"""{css}"""'
+        return json.dumps(css.strip(), ensure_ascii=False)
 
     @staticmethod
     def serialize_json(data: Any) -> str:

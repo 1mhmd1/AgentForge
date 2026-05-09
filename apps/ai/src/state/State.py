@@ -84,6 +84,9 @@ class AgentForgeState(TypedDict):
     run_id: str
     user_prompt: str
 
+    optimized_prompt: Optional[str]
+    prompt_analysis: Optional[dict[str, Any]]
+
     # 🔥 FIXED
     stage: Stage
     status: RunStatus
@@ -123,6 +126,9 @@ def initial_state(run_id: str, user_prompt: str) -> AgentForgeState:
     return AgentForgeState(
         run_id=run_id,
         user_prompt=user_prompt,
+
+        optimized_prompt=None,
+        prompt_analysis=None,
 
         stage="planning",        # 🔥 workflow step
         status="running",        # 🔥 overall state

@@ -50,13 +50,6 @@ DOMAIN-TOOL MAP:
 - data_transform → analyze, code, validate
 - website_builder → generate, code
 
-MODEL AWARENESS:
-- These are WEAK models with LOW context windows
-- Keep all instructions SHORT
-- Request structured JSON outputs only
-- Avoid complex reasoning chains
-- Break work into small focused chunks
-
 EXAMPLE:
 {{
   "goal": "Build a coffee shop landing page",

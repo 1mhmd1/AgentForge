@@ -1,5 +1,6 @@
 import ast
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from nodes.sub_agent import execute_sub_agent
@@ -67,33 +68,58 @@ def validate_spec(spec: dict[str, Any]) -> tuple[bool, str | None]:
 def _init_run_audit() -> dict[str, Any]:
     return {
         "total_tokens": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
         "agents_executed": [],
         "provider_usage": {},
+        "per_agent_tokens": {},
         "failed_step": None,
     }
 
 
-def _track_agent(audit: dict[str, Any], agent_id: str, provider: str, max_tokens: int) -> None:
+def _track_agent(audit: dict[str, Any], agent_id: str, provider: str, usage: dict[str, Any] | None) -> None:
     audit["agents_executed"].append(agent_id)
-    audit["total_tokens"] += max_tokens
     audit["provider_usage"][provider] = audit["provider_usage"].get(provider, 0) + 1
+    if not isinstance(usage, dict):
+        return
+    prompt_t = int(usage.get("prompt_tokens", 0) or 0)
+    comp_t = int(usage.get("completion_tokens", 0) or 0)
+    total_t = int(usage.get("total_tokens", 0) or 0) or (prompt_t + comp_t)
+    audit["prompt_tokens"] += prompt_t
+    audit["completion_tokens"] += comp_t
+    audit["total_tokens"] += total_t
+    audit["per_agent_tokens"][agent_id] = {
+        "prompt_tokens": prompt_t,
+        "completion_tokens": comp_t,
+        "total_tokens": total_t,
+        "provider": provider,
+    }
 
 
 def _build_safe_agent(domain: str, goal: str, run_id: str, sub_agent_results: dict[str, Any]) -> dict[str, Any]:
     """
-    Build agent using SafeCodeInjector — content safely serialized into
+    Build agent using SafeCodeInjector -- content safely serialized into
     Python string constants. Guaranteed to produce valid Python.
     """
     from services.safe_injector import SafeCodeInjector
 
-    # Collect all generated content from sub-agents
-    content_parts = []
-    for _sid, sr in sub_agent_results.items():
-        code_str = str(sr.get("generated_code", "")).strip()
-        if code_str:
-            content_parts.append(code_str)
+    # Sequential pipeline contract: each step rewrites the whole, so the LAST
+    # step's output is the final artifact for text domains. data_transform is
+    # the exception -- its steps are additive, so we keep the concatenation.
+    ordered_keys = sorted(sub_agent_results.keys())
+    if domain == "data_transform":
+        parts = [str(sub_agent_results[k].get("generated_code", "")).strip() for k in ordered_keys]
+        combined = "\n".join(p for p in parts if p)
+    else:
+        combined = ""
+        for k in reversed(ordered_keys):
+            candidate = str(sub_agent_results[k].get("generated_code", "")).strip()
+            if candidate:
+                combined = candidate
+                break
 
-    combined = "\n".join(content_parts) if content_parts else goal
+    if not combined:
+        combined = goal
 
     if domain == "website_builder":
         return SafeCodeInjector.build_and_validate(
@@ -146,7 +172,7 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
     steps = spec["steps"]
     tools = spec["tools"]
 
-    # Phase 2: execution planning — use staged plan from planner if available
+    # Phase 2: execution planning -- use staged plan from planner if available
     execution_plan = next_state.get("execution_plan")
     planned_agents = []
     if isinstance(execution_plan, dict):
@@ -172,6 +198,19 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Phase 3: STRICT SEQUENTIAL sub-agent execution
     run_audit = _init_run_audit()
+    # Carry forward planner's actual token usage so the audit reflects the
+    # whole pipeline, not just the build step.
+    planner_usage = next_state.get("planner_usage")
+    if isinstance(planner_usage, dict):
+        run_audit["prompt_tokens"] += int(planner_usage.get("prompt_tokens", 0) or 0)
+        run_audit["completion_tokens"] += int(planner_usage.get("completion_tokens", 0) or 0)
+        run_audit["total_tokens"] += int(planner_usage.get("total_tokens", 0) or 0)
+        run_audit["per_agent_tokens"]["planner"] = {
+            "prompt_tokens": int(planner_usage.get("prompt_tokens", 0) or 0),
+            "completion_tokens": int(planner_usage.get("completion_tokens", 0) or 0),
+            "total_tokens": int(planner_usage.get("total_tokens", 0) or 0),
+            "provider": planner_usage.get("provider", "unknown"),
+        }
     sub_agent_results: dict[str, Any] = {}
 
     for i, step_id in enumerate(execution_order):
@@ -210,9 +249,9 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
             goal=goal,
         )
         sub_agent_results[step_id] = result
-        _track_agent(run_audit, step_id, provider, max_tokens)
+        _track_agent(run_audit, step_id, provider, result.get("usage"))
 
-        # STOP on failure — no recursive retries, no fallback spawning
+        # STOP on failure -- no recursive retries, no fallback spawning
         if result.get("status") == "error":
             next_state["status"] = "failed"
             next_state["final_error"] = f"sub_agent_failed_{step_id}"
@@ -304,5 +343,11 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
     next_state["completed_stages"] = completed_stages
     next_state["build_duration_seconds"] = round(time.time() - t_start, 2)
     next_state["run_audit"] = run_audit
+    # Mark the run finished. Without this, callers (server, tests, audit) that
+    # branch on status in {"completed","failed"} mis-classify successful runs
+    # as still in flight (status="running" was set when the build loop began).
+    next_state["status"] = "completed"
+    next_state["stage"] = "completed"
+    next_state["completed_at"] = datetime.now(timezone.utc).isoformat()
     return next_state
 

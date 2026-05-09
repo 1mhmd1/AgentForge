@@ -1,6 +1,7 @@
 import os
 import shutil
 from pathlib import Path
+from typing import Any
 
 import google.generativeai as genai
 from dotenv import load_dotenv
@@ -27,7 +28,7 @@ def _ensure_env_loaded() -> None:
     load_dotenv(env_file)
 
 
-def call_gemini(prompt: str) -> str:
+def call_gemini(prompt: str) -> tuple[str, dict[str, Any]]:
     _ensure_env_loaded()
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
 
@@ -50,6 +51,16 @@ def call_gemini(prompt: str) -> str:
         if not text:
             raise RuntimeError("Gemini returned an empty response")
 
-        return text
+        meta = getattr(response, "usage_metadata", None)
+        prompt_t = getattr(meta, "prompt_token_count", 0) or 0
+        comp_t = getattr(meta, "candidates_token_count", 0) or 0
+        total_t = getattr(meta, "total_token_count", 0) or (prompt_t + comp_t)
+        usage = {
+            "prompt_tokens": prompt_t,
+            "completion_tokens": comp_t,
+            "total_tokens": total_t,
+            "provider": "gemini",
+        }
+        return text, usage
     except Exception as exc:
         raise RuntimeError(f"Gemini API error: {exc}") from exc
