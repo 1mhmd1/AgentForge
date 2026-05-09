@@ -29,6 +29,8 @@ RunStatus = Literal[
 
 Complexity = Literal["simple", "medium"]
 
+ValidationStatus = Literal["passed", "failed"]
+
 
 # ===== AGENT SPEC =====
 
@@ -51,69 +53,73 @@ class ExecutionStep(TypedDict):
     tools: list[str]
 
 
-# ===== EXECUTION PLAN (STAGED) =====
-
-class PlannedAgent(TypedDict):
-    id: str
-    role: str
-    input: str
-    output: str
-    provider: str
-    max_tokens: int
-
-
-class ExecutionPlan(TypedDict):
-    goal: str
-    execution_type: str
-    estimated_total_tokens: int
-    agents: list[PlannedAgent]
-
-
-# ===== RUN AUDIT =====
-
-class RunAudit(TypedDict):
-    total_tokens: int
-    agents_executed: list[str]
-    provider_usage: dict[str, int]
-    failed_step: Optional[str]
-
-
 # ===== MAIN STATE =====
 
 class AgentForgeState(TypedDict):
     run_id: str
     user_prompt: str
 
-    # 🔥 FIXED
+    # Workflow
     stage: Stage
     status: RunStatus
 
+    # Planner
     spec: Optional[AgentSpec]
     domain: Optional[Domain]
 
-    execution_plan: Optional[ExecutionPlan]
-    run_audit: Optional[RunAudit]
-
+    # Builder
     step_map: Optional[dict[str, ExecutionStep]]
     execution_order: Optional[list[str]]
-    sub_agent_results: Optional[dict[str, Any]]
 
     template_path: Optional[str]
+    template_name: Optional[str]
+    template_version: Optional[str]
+
     generated_code: Optional[str]
+
+    generated_files: Optional[list[str]]
+    file_manifest: Optional[list[dict[str, Any]]]
+
     output_path: Optional[str]
 
-    validation_errors: list[str]
-    repair_attempts: int
+    sub_agent_results: Optional[dict[str, Any]]
+
+    run_audit: Optional[dict[str, Any]]
+
+    # Execution tracking
+    current_stage: Optional[str]
+    completed_stages: Optional[list[str]]
+    error_stage: Optional[str]
+
+    sandbox_workdir: Optional[str]
 
     sandbox_output: Optional[str]
     sandbox_exit_code: Optional[int]
 
     semantic_score: Optional[float]
 
+    # Validator
+    validation_status: Optional[ValidationStatus]
+
+    validation_report: Optional[dict[str, Any]]
+
+    validation_score: Optional[int]
+
+    validation_errors: list[str]
+
+    repair_payload: Optional[dict[str, Any]]
+
+    repair_attempts: int
+
+    # Final errors
     final_error: Optional[str]
+
     final_error_details: Optional[dict[str, Any]]
 
+    # Timing
     created_at: str
+    started_at: Optional[str]
+    build_duration_seconds: Optional[float]
     completed_at: Optional[str]
 
 
@@ -124,34 +130,66 @@ def initial_state(run_id: str, user_prompt: str) -> AgentForgeState:
         run_id=run_id,
         user_prompt=user_prompt,
 
-        stage="planning",        # 🔥 workflow step
-        status="running",        # 🔥 overall state
+        # Workflow
+        stage="planning",
+        status="running",
 
+        # Planner
         spec=None,
         domain=None,
 
-        execution_plan=None,
-        run_audit=None,
-
+        # Builder
         step_map=None,
         execution_order=None,
-        sub_agent_results=None,
 
         template_path=None,
+        template_name=None,
+        template_version=None,
+
         generated_code=None,
+
+        generated_files=[],
+        file_manifest=[],
+
         output_path=None,
 
-        validation_errors=[],
-        repair_attempts=0,
+        sub_agent_results=None,
+
+        run_audit=None,
+
+        # Execution tracking
+        current_stage=None,
+        completed_stages=[],
+        error_stage=None,
+
+        sandbox_workdir=None,
 
         sandbox_output=None,
         sandbox_exit_code=None,
 
         semantic_score=None,
 
+        # Validator
+        validation_status=None,
+
+        validation_report=None,
+
+        validation_score=None,
+
+        validation_errors=[],
+
+        repair_payload=None,
+
+        repair_attempts=0,
+
+        # Final errors
         final_error=None,
+
         final_error_details=None,
 
+        # Timing
         created_at=datetime.utcnow().isoformat() + "Z",
+        started_at=None,
+        build_duration_seconds=None,
         completed_at=None,
     )
