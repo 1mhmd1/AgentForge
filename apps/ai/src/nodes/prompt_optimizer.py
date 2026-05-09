@@ -3,6 +3,7 @@ from typing import Any
 
 from llm.llm import call_llm
 from prompts.prompt_optimizer_prompt import PROMPT_OPTIMIZER_PROMPT
+from services.tracer import trace_node
 
 
 REQUIRED_FIELDS = (
@@ -113,7 +114,14 @@ def prompt_optimizer_node(state: dict[str, Any]) -> dict[str, Any]:
     next_state = state.copy()
     user_prompt = next_state.get("user_prompt", "") or ""
 
-    analysis = optimize_prompt(user_prompt)
+    with trace_node(next_state.get("run_id"), "prompt_optimizer") as tr:
+        analysis = optimize_prompt(user_prompt)
+        tr.note(
+            "optimizer_result",
+            detected_domain=analysis.get("detected_domain"),
+            complexity=analysis.get("complexity"),
+            had_error=bool(analysis.get("error")),
+        )
 
     optimized_text = analysis.get("optimized_prompt") or user_prompt
     next_state["optimized_prompt"] = optimized_text

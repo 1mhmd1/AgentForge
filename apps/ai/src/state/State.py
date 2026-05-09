@@ -129,6 +129,19 @@ class AgentForgeState(TypedDict):
 
 # ===== INITIAL STATE =====
 
+def require_state_keys(state: dict, keys: list[str], where: str) -> None:
+    """
+    Raise KeyError listing every missing key. Use at the top of any node that
+    relies on upstream state. AgentForgeState is a TypedDict (compile-time
+    only); this is the runtime check.
+    """
+    if not isinstance(state, dict):
+        raise TypeError(f"{where}: expected state dict, got {type(state).__name__}")
+    missing = [k for k in keys if k not in state]
+    if missing:
+        raise KeyError(f"{where}: missing required state keys: {missing}")
+
+
 def initial_state(run_id: str, user_prompt: str) -> AgentForgeState:
     return AgentForgeState(
         run_id=run_id,

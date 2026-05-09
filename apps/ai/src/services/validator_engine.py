@@ -7,16 +7,22 @@ from typing import Any
 from .audit_checker import validate_audit
 from .execution_checker import validate_execution
 from .file_checker import validate_file
-from .syntax_checker import SKIP_SYNTAX_EXTENSIONS, validate_syntax
+from .observability import log_event
+from .syntax_checker import SKIP_SYNTAX_EXTENSIONS, check_triviality, validate_syntax
 from .validation_report import build_validation_report
 
 
 def _log_stage(stage: str, passed: bool, elapsed: float, error_summary: str | None = None) -> None:
-    summary = error_summary or "ok"
-    summary = summary.replace("\n", " ").strip()
+    summary = (error_summary or "ok").replace("\n", " ").strip()
     if len(summary) > 120:
         summary = summary[:120] + "..."
-    print(f"{stage} | {'pass' if passed else 'fail'} | {elapsed:.4f}s | {summary}")
+    log_event(
+        "validator_stage",
+        stage=stage,
+        status="pass" if passed else "fail",
+        elapsed_s=round(elapsed, 4),
+        summary=summary,
+    )
 
 
 def _normalize_path_list(paths: Any) -> list[str]:
@@ -242,6 +248,15 @@ def run_validation(state: dict) -> dict:
         execution_result,
         audit_result,
     )
+
+    # Triviality detection: surface as a warning. Does NOT change validation_status
+    # (legitimate small scripts must still pass). Conservative -- only flags
+    # imports-only or all-placeholder bodies.
+    triviality = check_triviality(generated_code)
+    if triviality["trivial"]:
+        msg = f"TRIVIAL_OUTPUT: {triviality['reason']}"
+        if msg not in validation_report["warnings"]:
+            validation_report["warnings"].append(msg)
 
     report_elapsed = time.perf_counter() - audit_started
     _log_stage("Report Generation", validation_report["validation_status"] == "passed", report_elapsed, validation_report["errors"][0] if validation_report["errors"] else None)

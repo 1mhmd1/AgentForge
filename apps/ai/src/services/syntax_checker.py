@@ -48,6 +48,36 @@ def check_unresolved_markers(code: str) -> dict:
     return {"valid": not issues, "issues": issues}
 
 
+def check_triviality(code: str) -> dict:
+    """
+    Detect literally-degenerate outputs: comments-only, imports-only, or
+    all-`pass` placeholder bodies. Conservative on purpose -- a script like
+    `print("hi")` is not flagged.
+    Returns {"trivial": bool, "reason": str | None}.
+    """
+    if not isinstance(code, str):
+        return {"trivial": False, "reason": None}
+    lines = code.splitlines()
+    body_lines = [l.strip() for l in lines if l.strip() and not l.strip().startswith("#")]
+    if not body_lines:
+        return {"trivial": True, "reason": "no executable lines"}
+
+    only_imports = all(
+        line.startswith("import ") or line.startswith("from ")
+        for line in body_lines
+    )
+    if only_imports:
+        return {"trivial": True, "reason": "imports-only file (no logic)"}
+
+    # All non-import statements are placeholder bodies?
+    placeholder_tokens = {"pass", "...", "return", "return None", "raise NotImplementedError()"}
+    non_def_lines = [l for l in body_lines if not (l.startswith("def ") or l.startswith("class ") or l.startswith("async def "))]
+    if non_def_lines and all(l in placeholder_tokens for l in non_def_lines):
+        return {"trivial": True, "reason": "all bodies are placeholders (pass/...)"}
+
+    return {"trivial": False, "reason": None}
+
+
 SKIP_SYNTAX_EXTENSIONS = {
     ".html",
     ".css",

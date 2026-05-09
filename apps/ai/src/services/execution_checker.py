@@ -1,10 +1,29 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
+
+
+def _build_clean_env() -> dict:
+    # Strip PYTHONPATH so generated agents can't import host modules.
+    # Keep PATH (needed to find `python`) and SYSTEMROOT (Windows DLL loader).
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONPATH": "",
+        "PYTHONIOENCODING": "utf-8",
+    }
+    if sys.platform == "win32":
+        # Windows subprocesses crash without these system vars.
+        for key in ("SYSTEMROOT", "SYSTEMDRIVE", "TEMP", "TMP", "USERPROFILE"):
+            value = os.environ.get(key)
+            if value:
+                env[key] = value
+    return env
 
 
 SKIP_EXECUTION_EXTENSIONS = {
@@ -82,6 +101,7 @@ def validate_execution(path: str, workdir: str | None = None) -> dict:
                     capture_output=True,
                     text=True,
                     timeout=15,
+                    env=_build_clean_env(),
                 )
                 stdout, stdout_truncated = _truncate_output(completed.stdout or "")
                 stderr, stderr_truncated = _truncate_output(completed.stderr or "")

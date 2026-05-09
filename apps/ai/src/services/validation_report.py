@@ -42,7 +42,7 @@ def build_validation_report(
 
     if not syntax_valid:
         syntax_error = syntax_result.get("error") or "syntax_validation_failed"
-        _add_unique(errors, f"CRITICAL: SyntaxError — {syntax_error}")
+        _add_unique(errors, f"CRITICAL: SyntaxError -- {syntax_error}")
 
     file_errors = []
     if not file_valid:
@@ -52,7 +52,7 @@ def build_validation_report(
 
     if not execution_valid:
         execution_error = execution_result.get("error") or "execution_validation_failed"
-        _add_unique(errors, f"CRITICAL: ExecutionError — {execution_error}")
+        _add_unique(errors, f"CRITICAL: ExecutionError -- {execution_error}")
 
     if execution_result.get("output_truncated"):
         _add_unique(warnings, "output_truncated")

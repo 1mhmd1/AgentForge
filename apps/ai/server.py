@@ -1,6 +1,6 @@
 """
-AgentForge Pipeline Test UI — FastAPI server
-Runs Planner -> Builder and streams stage-by-stage results.
+AgentForge Pipeline Test UI -- FastAPI server
+Runs prompt_optimizer -> planner -> builder -> validator and streams stage-by-stage results.
 """
 import sys
 import os
@@ -10,7 +10,6 @@ import logging
 import uuid
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
-os.chdir(os.path.join(os.path.dirname(__file__), "src"))
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
@@ -21,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from state.State import initial_state
+from nodes.prompt_optimizer import prompt_optimizer_node
 from nodes.planner import planner_node
 from nodes.builder import (
     builder_node,
@@ -33,14 +33,24 @@ from nodes.builder import (
     STAGE_SYNTAX_VALIDATION,
     STAGE_FILE_WRITING,
 )
+from nodes.validator import validator_node
 
 logging.basicConfig(level=logging.WARNING)
 
 app = FastAPI(title="AgentForge Pipeline UI")
 
+# CORS: comma-separated allowlist via AI_CORS_ORIGINS env var.
+# Unset = "*" with a stderr warning (dev convenience, NOT production-safe).
+_cors_env = os.getenv("AI_CORS_ORIGINS", "").strip()
+if _cors_env:
+    _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+else:
+    _cors_origins = ["*"]
+    print("WARNING: AI_CORS_ORIGINS not set; allowing all origins. Do not use in production.", file=sys.stderr)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -71,12 +81,37 @@ def stream_pipeline(prompt: str, domain: str | None):
 
     yield emit("started", {"run_id": run_id, "prompt": prompt})
 
-    # ── Planner ────────────────────────────────────────────────────────
-    yield emit("stage", {"stage": "PLANNER", "status": "running", "label": "Planning with AI..."})
-
     state = initial_state(run_id=run_id, user_prompt=prompt)
     if domain:
         state["domain"] = domain
+
+    # ── Prompt Optimizer ───────────────────────────────────────────────
+    yield emit("stage", {"stage": "PROMPT_OPTIMIZER", "status": "running", "label": "Optimizing prompt..."})
+    t_opt = time.time()
+    try:
+        state = prompt_optimizer_node(state)
+        opt_time = round(time.time() - t_opt, 2)
+    except Exception as exc:
+        # Optimizer failures are non-fatal -- fall back to raw prompt.
+        opt_time = round(time.time() - t_opt, 2)
+        yield emit("stage", {
+            "stage": "PROMPT_OPTIMIZER", "status": "skipped",
+            "error": str(exc), "duration": opt_time,
+        })
+    else:
+        analysis = state.get("prompt_analysis") or {}
+        yield emit("stage", {
+            "stage": "PROMPT_OPTIMIZER",
+            "status": "success",
+            "duration": opt_time,
+            "optimized_prompt": state.get("optimized_prompt"),
+            "detected_domain": analysis.get("detected_domain"),
+            "complexity": analysis.get("complexity"),
+            "detected_requirements": analysis.get("detected_requirements", []),
+        })
+
+    # ── Planner ────────────────────────────────────────────────────────
+    yield emit("stage", {"stage": "PLANNER", "status": "running", "label": "Planning with AI..."})
 
     t0 = time.time()
     try:
@@ -166,6 +201,32 @@ def stream_pipeline(prompt: str, domain: str | None):
     output_path = builder_output.get("output_path", "")
     sub_results = builder_output.get("sub_agent_results", {})
 
+    # ── Validator ──────────────────────────────────────────────────────
+    yield emit("stage", {"stage": "VALIDATOR", "status": "running", "label": "Validating generated agent..."})
+    t_val = time.time()
+    try:
+        validated = validator_node(builder_output)
+        val_time = round(time.time() - t_val, 2)
+    except Exception as exc:
+        val_time = round(time.time() - t_val, 2)
+        yield emit("stage", {
+            "stage": "VALIDATOR", "status": "skipped",
+            "error": str(exc), "duration": val_time,
+        })
+        validated = builder_output  # treat as if validator never ran
+    else:
+        v_status = validated.get("validation_status")
+        v_report = validated.get("validation_report") or {}
+        yield emit("stage", {
+            "stage": "VALIDATOR",
+            "status": "success" if v_status == "passed" else "failed",
+            "duration": val_time,
+            "validation_status": v_status,
+            "validation_score": validated.get("validation_score"),
+            "errors": v_report.get("errors", []),
+            "warnings": v_report.get("warnings", []),
+        })
+
     yield emit("success", {
         "build_duration": builder_output.get("build_duration_seconds"),
         "output_path": output_path,
@@ -174,6 +235,9 @@ def stream_pipeline(prompt: str, domain: str | None):
         "domain": builder_output.get("domain", ""),
         "quality_score": builder_output.get("quality_score"),
         "run_audit": builder_output.get("run_audit"),
+        "validation_status": validated.get("validation_status"),
+        "validation_score": validated.get("validation_score"),
+        "validation_report": validated.get("validation_report"),
         "sub_agent_results": {
             sid: {
                 "step_id": sid,

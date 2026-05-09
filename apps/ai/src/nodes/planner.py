@@ -1,19 +1,11 @@
-import json
 from typing import Any
 from llm.llm import call_llm
 from prompts.planner_prompt import PLANNER_PROMPT
+from services.llm_parsing import parse_with_recovery
+from services.tracer import record_event
 
 
-def _clean_json(text: str) -> str:
-    """Remove markdown fences like ```json or ``` from AI response"""
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.strip("`")
-        if cleaned.lower().startswith("json"):
-            cleaned = cleaned[4:].strip()
-    if cleaned.endswith("```"):
-        cleaned = cleaned[:-3].strip()
-    return cleaned
+_PLANNER_REQUIRED_FIELDS = ["goal", "domain", "steps", "tools", "complexity", "agents"]
 
 
 def _extract_execution_plan(spec: dict[str, Any]) -> dict[str, Any] | None:
@@ -51,10 +43,15 @@ def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     user_prompt = optimized if isinstance(optimized, str) and optimized.strip() else raw_user
     prompt = PLANNER_PROMPT.format(user_prompt=user_prompt)
 
+    run_id = next_state.get("run_id")
+    record_event(run_id, "node_enter", node="planner")
     try:
         raw, planner_usage = call_llm(prompt, max_tokens=500)
-        cleaned = _clean_json(raw)
-        spec = json.loads(cleaned)
+        spec = parse_with_recovery(raw, expected_fields=_PLANNER_REQUIRED_FIELDS)
+        # Recovery may return an empty dict for garbage input; require at least
+        # one core planning field to consider this a real plan.
+        if not spec.get("goal") and not spec.get("steps"):
+            raise ValueError("planner output missing core fields after recovery")
         next_state["planner_usage"] = planner_usage
 
         # Domain override: user's choice takes priority
@@ -91,6 +88,11 @@ def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         next_state["domain"] = domain
         next_state["execution_plan"] = execution_plan
         next_state["stage"] = "planning"
+        record_event(
+            run_id, "node_exit", node="planner",
+            status="success", domain=domain,
+            steps=len(spec.get("steps", []) or []),
+        )
 
     except Exception as exc:
         next_state["status"] = "failed"
@@ -100,5 +102,9 @@ def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             "exception_type": type(exc).__name__,
             "message": str(exc),
         }
+        record_event(
+            run_id, "node_error", node="planner",
+            exception_type=type(exc).__name__, message=str(exc)[:200],
+        )
 
     return next_state

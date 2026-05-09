@@ -5,6 +5,7 @@ from typing import Any
 
 from nodes.sub_agent import execute_sub_agent
 from services.errors import ERROR_CODES, SUPPORTED_DOMAINS
+from services.tracer import record_event
 
 # ===== STAGE CONSTANTS =====
 
@@ -145,6 +146,7 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
     next_state = state.copy()
     completed_stages: list[str] = []
     t_start = time.time()
+    record_event(next_state.get("run_id"), "node_enter", node="builder")
 
     # Phase 1: input handling
     spec = next_state.get("spec")
@@ -349,5 +351,12 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
     next_state["status"] = "completed"
     next_state["stage"] = "completed"
     next_state["completed_at"] = datetime.now(timezone.utc).isoformat()
+    record_event(
+        next_state.get("run_id"), "node_exit", node="builder",
+        status="completed",
+        steps=len(execution_order),
+        total_tokens=run_audit.get("total_tokens", 0),
+        duration_s=next_state["build_duration_seconds"],
+    )
     return next_state
 

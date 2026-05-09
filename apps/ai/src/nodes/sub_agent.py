@@ -161,9 +161,13 @@ def execute_sub_agent(
     )
 
     last_error: Exception | None = None
-    accumulated_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "provider": provider}
+    accumulated_usage = {
+        "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+        "provider": provider, "llm_calls": 0,
+    }
 
     def _accumulate(u: dict[str, Any]) -> None:
+        accumulated_usage["llm_calls"] += 1
         if not isinstance(u, dict):
             return
         accumulated_usage["prompt_tokens"] += int(u.get("prompt_tokens", 0) or 0)

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from services.tracer import record_event
 from services.validator_engine import run_validation
 
 
 def validator_node(state: dict) -> dict:
     next_state = state.copy() if isinstance(state, dict) else {}
     next_state["stage"] = "validating"
+
+    run_id = next_state.get("run_id") if isinstance(next_state, dict) else None
+    record_event(run_id, "node_enter", node="validator")
 
     result = run_validation(next_state)
 
@@ -35,4 +39,9 @@ def validator_node(state: dict) -> dict:
             if result["validation_errors"]:
                 next_state["final_error"] = result["validation_errors"][0]
 
+    record_event(
+        run_id, "node_exit", node="validator",
+        validation_status=result["validation_status"],
+        score=result.get("validation_score"),
+    )
     return next_state
