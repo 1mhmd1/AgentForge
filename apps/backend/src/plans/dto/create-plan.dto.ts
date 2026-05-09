@@ -1,46 +1,37 @@
 import { Type } from 'class-transformer';
-import { IsString, IsNumber, IsOptional, IsBoolean, IsArray, IsEnum, Min } from 'class-validator';
-import { PlanInterval } from '@prisma/client';
+import {
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
+import { PlanInterval, PlanTier } from '@prisma/client';
 
 export class CreatePlanDto {
-  @IsString()
-  name!: string;
+  @IsString() name!: string;
+  @IsString() slug!: string;
+  @IsOptional() @IsEnum(PlanTier) tier?: PlanTier;
+  @IsOptional() @IsString() description?: string;
 
-  @IsString()
-  slug!: string;
+  // Canonical pricing (cents) — replaces the legacy `price` float.
+  @Type(() => Number) @IsInt() @Min(0) priceUSDCents!: number;
 
-  @IsOptional()
-  @IsString()
-  description?: string;
+  @IsOptional() @IsString() currency?: string = 'USD';
 
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  price!: number;
+  @IsArray() @IsString({ each: true }) features!: string[];
 
-  @IsOptional()
-  @IsString()
-  currency?: string = 'USD';
+  @Type(() => Number) @IsInt() @Min(0) monthlyCredits!: number;
 
-  @IsArray()
-  @IsString({ each: true })
-  features!: string[];
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) maxConcurrentRuns?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) maxStoredMB?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) maxRunsPerDay?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) priorityLevel?: number;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  maxRuns?: number = 100;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  maxAgents?: number = 5;
-
-  @IsOptional()
-  @IsBoolean()
-  active?: boolean = true;
-
-  @IsOptional()
-  @IsEnum(PlanInterval)
-  interval?: PlanInterval = PlanInterval.MONTHLY;
+  @IsOptional() @IsBoolean() canUseCustomTemplates?: boolean;
+  @IsOptional() @IsBoolean() canUseApi?: boolean;
+  @IsOptional() @IsBoolean() active?: boolean = true;
+  @IsOptional() @IsEnum(PlanInterval) interval?: PlanInterval = PlanInterval.MONTHLY;
 }

@@ -12,6 +12,46 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentforge -d agentforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: agentforge-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.10.0
+    container_name: agentforge-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  ai:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.ai
+    container_name: agentforge-ai
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
 
   backend:
     build:
@@ -21,17 +61,19 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - postgres
-    env_file:
-      - .env
-
-  ai:
-    build:
-      context: .
-      dockerfile: infra/docker/Dockerfile.ai
-    container_name: agentforge-ai
-    ports:
-      - "4000:4000"
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      ai:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://agentforge:agentforge@postgres:5432/agentforge
+      REDIS_URL: redis://redis:6379
+      QDRANT_URL: http://qdrant:6333
+      AI_SERVICE_URL: http://ai:4000
     env_file:
       - .env
 
@@ -47,3 +89,4 @@ services:
 
 volumes:
   postgres_data:
+  qdrant_data:

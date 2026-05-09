@@ -1,55 +1,101 @@
-import { Controller, Post, Body, UseGuards, Patch, Param, Delete, Get, ValidationPipe } from '@nestjs/common';
-import { PlansService } from './plans.service';
-import { CreatePlanDto } from './dto/create-plan.dto';
-import { UpdatePlanDto } from './dto/update-plan.dto';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
-import { Role } from '@prisma/client';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { PlansService } from './plans.service';
+import { CreatePlanDto } from './dto/create-plan.dto';
+import { UpdatePlanDto } from './dto/update-plan.dto';
 
-@Controller('plans')
+@ApiTags('plans')
+@Controller()
 export class PlansController {
-  constructor(private plansService: PlansService) {}
+  constructor(private plans: PlansService) {}
 
-  // Public endpoint: get plan by slug
-  @Get('slug/:slug')
-  async getBySlug(@Param('slug') slug: string) {
-    return this.plansService.getBySlug(slug);
+  @Get('plans')
+  @ApiOperation({ summary: 'Public plan list' })
+  list() {
+    return this.plans.listPublic();
   }
 
-  // Admin CRUD
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @Post()
-  async create(@Body(new ValidationPipe({ whitelist: true, transform: true })) dto: CreatePlanDto) {
-    return this.plansService.createPlan(dto as any);
+  @Get('plans/slug/:slug')
+  getBySlug(@Param('slug') slug: string) {
+    return this.plans.getBySlug(slug);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @Patch(':id')
-  async update(@Param('id') id: string, @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: UpdatePlanDto) {
-    return this.plansService.updatePlan(id, dto as any);
+  @Get('plans/:id')
+  getById(@Param('id') id: string) {
+    return this.plans.getById(id);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @Delete(':id')
-  async remove(@Param('id') id: string) {
-    return this.plansService.softDelete(id);
+  // ─── Caller's plan ────────────────────────────────────
+  @Get('plans/me')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Caller’s current plan + renewal date' })
+  me(@CurrentUser('sub') userId: string) {
+    return this.plans.getMine(userId);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @Get()
-  async listAll() {
-    return this.plansService.listAll();
+  @Post('plans/me/assign/:planId')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Assign caller to a plan (dev path; Stripe replaces)' })
+  assignToMe(
+    @Param('planId') planId: string,
+    @CurrentUser('sub') userId: string,
+  ) {
+    return this.plans.assignToUser(userId, planId);
   }
 
+  @Post('plans/me/cancel')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  cancelMine(@CurrentUser('sub') userId: string) {
+    return this.plans.cancelMine(userId);
+  }
+
+  // ─── Admin ────────────────────────────────────────────
+  @Get('admin/plans')
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @Get(':id')
-  async getById(@Param('id') id: string) {
-    return this.plansService.getById(id);
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  listAll() {
+    return this.plans.listAll();
+  }
+
+  @Post('admin/plans')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  create(@Body() dto: CreatePlanDto) {
+    return this.plans.createPlan(dto);
+  }
+
+  @Patch('admin/plans/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  update(@Param('id') id: string, @Body() dto: UpdatePlanDto) {
+    return this.plans.updatePlan(id, dto);
+  }
+
+  @Delete('admin/plans/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  remove(@Param('id') id: string) {
+    return this.plans.softDelete(id);
   }
 }
