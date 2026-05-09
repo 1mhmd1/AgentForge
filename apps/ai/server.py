@@ -15,8 +15,8 @@ os.chdir(os.path.join(os.path.dirname(__file__), "src"))
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -102,6 +102,8 @@ def stream_pipeline(prompt: str, domain: str | None):
         yield emit("failed", {"final_error": "no_spec_produced", "error_stage": "PLANNER"})
         return
 
+    execution_plan = planner_output.get("execution_plan")
+
     yield emit("stage", {
         "stage": "PLANNER",
         "status": "success",
@@ -114,6 +116,7 @@ def stream_pipeline(prompt: str, domain: str | None):
             "complexity": spec.get("complexity"),
             "success_criteria": spec.get("success_criteria"),
         },
+        "execution_plan": execution_plan,
     })
 
     yield emit("spec", {"spec": {
@@ -155,6 +158,7 @@ def stream_pipeline(prompt: str, domain: str | None):
             "error_stage": builder_output.get("error_stage"),
             "details": builder_output.get("final_error_details"),
             "build_duration": builder_time,
+            "run_audit": builder_output.get("run_audit"),
         })
         return
 
@@ -167,7 +171,18 @@ def stream_pipeline(prompt: str, domain: str | None):
         "output_path": output_path,
         "code_length": len(code),
         "code": code,
+        "domain": builder_output.get("domain", ""),
         "quality_score": builder_output.get("quality_score"),
+        "run_audit": builder_output.get("run_audit"),
+        "sub_agent_results": {
+            sid: {
+                "step_id": sid,
+                "status": sr.get("status"),
+                "summary": sr.get("summary", ""),
+                "generated_code": sr.get("generated_code", ""),
+            }
+            for sid, sr in sub_results.items()
+        },
         "sub_agent_summary": [
             {
                 "step_id": sid,
@@ -187,10 +202,42 @@ async def run_pipeline(req: RunRequest):
     return StreamingResponse(generator(), media_type="text/event-stream")
 
 
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """Upload a file and return its text content for pipeline processing."""
+    UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+    content = await file.read()
+    filename = file.filename or "uploaded_file"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    # Try to read as text
+    text_content = ""
+    try:
+        text_content = content.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            text_content = content.decode("latin-1")
+        except Exception:
+            text_content = f"[Binary file: {filename}, {len(content)} bytes]"
+
+    return JSONResponse({
+        "filename": filename,
+        "size": len(content),
+        "content": text_content[:10000],  # Limit to 10k chars
+        "path": filepath,
+    })
+
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_ui():
     with open(os.path.join(os.path.dirname(__file__), "ui.html"), encoding="utf-8") as f:
         return f.read()
+
 
 
 if __name__ == "__main__":

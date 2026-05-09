@@ -51,6 +51,33 @@ class ExecutionStep(TypedDict):
     tools: list[str]
 
 
+# ===== EXECUTION PLAN (STAGED) =====
+
+class PlannedAgent(TypedDict):
+    id: str
+    role: str
+    input: str
+    output: str
+    provider: str
+    max_tokens: int
+
+
+class ExecutionPlan(TypedDict):
+    goal: str
+    execution_type: str
+    estimated_total_tokens: int
+    agents: list[PlannedAgent]
+
+
+# ===== RUN AUDIT =====
+
+class RunAudit(TypedDict):
+    total_tokens: int
+    agents_executed: list[str]
+    provider_usage: dict[str, int]
+    failed_step: Optional[str]
+
+
 # ===== MAIN STATE =====
 
 class AgentForgeState(TypedDict):
@@ -64,6 +91,9 @@ class AgentForgeState(TypedDict):
     spec: Optional[AgentSpec]
     domain: Optional[Domain]
 
+    execution_plan: Optional[ExecutionPlan]
+    run_audit: Optional[RunAudit]
+
     step_map: Optional[dict[str, ExecutionStep]]
     execution_order: Optional[list[str]]
     sub_agent_results: Optional[dict[str, Any]]
@@ -71,10 +101,6 @@ class AgentForgeState(TypedDict):
     template_path: Optional[str]
     generated_code: Optional[str]
     output_path: Optional[str]
-
-    current_stage: Optional[str]
-    completed_stages: Optional[list[str]]
-    error_stage: Optional[str]
 
     validation_errors: list[str]
     repair_attempts: int
@@ -88,9 +114,7 @@ class AgentForgeState(TypedDict):
     final_error_details: Optional[dict[str, Any]]
 
     created_at: str
-    started_at: Optional[float]
-    build_duration_seconds: Optional[float]
-    completed_at: Optional[float]
+    completed_at: Optional[str]
 
 
 # ===== INITIAL STATE =====
@@ -106,6 +130,9 @@ def initial_state(run_id: str, user_prompt: str) -> AgentForgeState:
         spec=None,
         domain=None,
 
+        execution_plan=None,
+        run_audit=None,
+
         step_map=None,
         execution_order=None,
         sub_agent_results=None,
@@ -113,10 +140,6 @@ def initial_state(run_id: str, user_prompt: str) -> AgentForgeState:
         template_path=None,
         generated_code=None,
         output_path=None,
-
-    current_stage=None,
-    completed_stages=[],
-    error_stage=None,
 
         validation_errors=[],
         repair_attempts=0,
@@ -130,7 +153,5 @@ def initial_state(run_id: str, user_prompt: str) -> AgentForgeState:
         final_error_details=None,
 
         created_at=datetime.utcnow().isoformat() + "Z",
-        started_at=None,
-        build_duration_seconds=None,
         completed_at=None,
     )

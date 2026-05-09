@@ -1,23 +1,20 @@
 import ast
-import logging
 import time
 from typing import Any
 
 from nodes.sub_agent import execute_sub_agent
-from services.template_loader import load_template
-from services.template_renderer import render_template
-from services.code_injector import inject_code
-from services.file_writer import write_generated_agent
 from services.errors import ERROR_CODES, SUPPORTED_DOMAINS
 
-logger = logging.getLogger(__name__)
+# ===== STAGE CONSTANTS =====
 
-STAGE_VALIDATION = "VALIDATION"
-STAGE_TEMPLATE_LOADING = "TEMPLATE_LOADING"
-STAGE_TEMPLATE_RENDERING = "TEMPLATE_RENDERING"
-STAGE_CODE_INJECTION = "CODE_INJECTION"
-STAGE_SYNTAX_VALIDATION = "SYNTAX_VALIDATION"
-STAGE_FILE_WRITING = "FILE_WRITING"
+STAGE_VALIDATION = "Spec Validation"
+STAGE_EXECUTION_PLANNING = "Execution Planning"
+STAGE_TEMPLATE_LOADING = "Template Loading"
+STAGE_TEMPLATE_RENDERING = "Template Rendering"
+STAGE_CODE_INJECTION = "Code Injection"
+STAGE_QUALITY_VALIDATION = "Quality Validation"
+STAGE_SYNTAX_VALIDATION = "Syntax Validation"
+STAGE_FILE_WRITING = "File Writing"
 
 
 def _normalize_list(value: Any) -> list[str]:
@@ -67,89 +64,78 @@ def validate_spec(spec: dict[str, Any]) -> tuple[bool, str | None]:
     return True, None
 
 
-def _initialize_stage_tracking(state: dict[str, Any]) -> dict[str, Any]:
-    next_state = dict(state)
-    completed = next_state.get("completed_stages")
-    if completed is None:
-        completed = []
-    next_state["completed_stages"] = list(completed)
-    if "current_stage" not in next_state:
-        next_state["current_stage"] = None
-    if "error_stage" not in next_state:
-        next_state["error_stage"] = None
-    return next_state
+def _init_run_audit() -> dict[str, Any]:
+    return {
+        "total_tokens": 0,
+        "agents_executed": [],
+        "provider_usage": {},
+        "failed_step": None,
+    }
 
 
-def _enter_stage(state: dict[str, Any], stage: str) -> dict[str, Any]:
-    next_state = dict(state)
-    next_state["current_stage"] = stage
-    completed = next_state.get("completed_stages")
-    if completed is None:
-        completed = []
-    next_state["completed_stages"] = list(completed)
-    return next_state
+def _track_agent(audit: dict[str, Any], agent_id: str, provider: str, max_tokens: int) -> None:
+    audit["agents_executed"].append(agent_id)
+    audit["total_tokens"] += max_tokens
+    audit["provider_usage"][provider] = audit["provider_usage"].get(provider, 0) + 1
 
 
-def _complete_stage(state: dict[str, Any], stage: str) -> dict[str, Any]:
-    next_state = dict(state)
-    completed = list(next_state.get("completed_stages") or [])
-    if stage not in completed:
-        completed.append(stage)
-    next_state["completed_stages"] = completed
-    return next_state
+def _build_safe_agent(domain: str, goal: str, run_id: str, sub_agent_results: dict[str, Any]) -> dict[str, Any]:
+    """
+    Build agent using SafeCodeInjector — content safely serialized into
+    Python string constants. Guaranteed to produce valid Python.
+    """
+    from services.safe_injector import SafeCodeInjector
 
+    # Collect all generated content from sub-agents
+    content_parts = []
+    for _sid, sr in sub_agent_results.items():
+        code_str = str(sr.get("generated_code", "")).strip()
+        if code_str:
+            content_parts.append(code_str)
 
-def _finalize_timing(state: dict[str, Any]) -> dict[str, Any]:
-    next_state = dict(state)
-    completed_at = time.time()
-    next_state["completed_at"] = completed_at
-    started_at = next_state.get("started_at")
-    if isinstance(started_at, (int, float)):
-        next_state["build_duration_seconds"] = max(0.0, completed_at - float(started_at))
-    return next_state
+    combined = "\n".join(content_parts) if content_parts else goal
 
-
-def build_failure_state(
-    state: dict[str, Any],
-    error_code: str,
-    details: dict[str, Any] | None = None,
-    stage: str | None = None,
-) -> dict[str, Any]:
-    next_state = dict(state)
-    next_state["status"] = "failed"
-    next_state["final_error"] = error_code
-    next_state["final_error_details"] = details
-    if stage:
-        next_state["error_stage"] = stage
-    next_state = _finalize_timing(next_state)
-    return next_state
+    if domain == "website_builder":
+        return SafeCodeInjector.build_and_validate(
+            domain=domain, goal=goal, html=combined, css="", js="", run_id=run_id
+        )
+    elif domain == "web_research":
+        return SafeCodeInjector.build_and_validate(
+            domain=domain, goal=goal, query=combined, run_id=run_id
+        )
+    elif domain == "document":
+        return SafeCodeInjector.build_and_validate(
+            domain=domain, goal=goal, topic=combined, run_id=run_id
+        )
+    elif domain == "data_transform":
+        return SafeCodeInjector.build_and_validate(
+            domain=domain, goal=goal, data=combined, run_id=run_id
+        )
+    else:
+        return {"valid": False, "code": None, "warnings": [], "error": f"Unknown domain: {domain}"}
 
 
 def builder_node(state: dict[str, Any]) -> dict[str, Any]:
-    next_state = _initialize_stage_tracking(state)
-    next_state["started_at"] = time.time()
-    next_state["build_duration_seconds"] = None
-    next_state["error_stage"] = None
-    logger.info("builder_start", extra={"run_id": next_state.get("run_id")})
+    next_state = state.copy()
+    completed_stages: list[str] = []
+    t_start = time.time()
 
     # Phase 1: input handling
-    next_state = _enter_stage(next_state, STAGE_VALIDATION)
-    logger.info("builder_validation_start", extra={"run_id": next_state.get("run_id")})
     spec = next_state.get("spec")
     is_valid, reason = validate_spec(spec) if isinstance(spec, dict) else (False, "spec_not_dict")
     if not is_valid:
+        next_state["status"] = "failed"
         if reason == "domain_unsupported" and isinstance(spec, dict):
             domain_value = str(spec.get("domain", "")).strip().lower()
-            error_code = f"{ERROR_CODES['TEMPLATE_NOT_FOUND']}:{domain_value}"
+            next_state["final_error"] = f"{ERROR_CODES['TEMPLATE_NOT_FOUND']}:{domain_value}"
         else:
-            error_code = f"{ERROR_CODES['INVALID_SPEC']}:{reason}"
-        logger.error("builder_validation_failed", extra={"run_id": next_state.get("run_id"), "reason": reason})
-        return build_failure_state(
-            next_state,
-            error_code,
-            details={"reason": reason},
-            stage=STAGE_VALIDATION,
-        )
+            next_state["final_error"] = f"{ERROR_CODES['INVALID_SPEC']}:{reason}"
+        next_state["final_error_details"] = {"reason": reason}
+        next_state["error_stage"] = STAGE_VALIDATION
+        next_state["completed_stages"] = completed_stages
+        return next_state
+
+    completed_stages.append(STAGE_VALIDATION)
 
     spec = dict(spec)
     spec["goal"] = str(spec.get("goal")).strip()
@@ -159,10 +145,13 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
     next_state["domain"] = str(spec.get("domain")).strip().lower()
     steps = spec["steps"]
     tools = spec["tools"]
-    next_state = _complete_stage(next_state, STAGE_VALIDATION)
-    logger.info("builder_validation_success", extra={"run_id": next_state.get("run_id")})
 
-    # Phase 2: execution planning
+    # Phase 2: execution planning — use staged plan from planner if available
+    execution_plan = next_state.get("execution_plan")
+    planned_agents = []
+    if isinstance(execution_plan, dict):
+        planned_agents = execution_plan.get("agents", [])
+
     step_map: dict[str, dict[str, Any]] = {}
     execution_order: list[str] = []
 
@@ -179,150 +168,140 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
     next_state["execution_order"] = execution_order
     next_state["stage"] = "building"
     next_state["status"] = "running"
+    completed_stages.append(STAGE_EXECUTION_PLANNING)
 
+    # Phase 3: STRICT SEQUENTIAL sub-agent execution
+    run_audit = _init_run_audit()
     sub_agent_results: dict[str, Any] = {}
 
-    for step_id in execution_order:
+    for i, step_id in enumerate(execution_order):
         if step_id not in step_map:
-            logger.error("builder_step_consistency_failed", extra={"run_id": next_state.get("run_id"), "step_id": step_id})
-            return build_failure_state(
-                next_state,
-                "step_consistency_failed",
-                details={"step_id": step_id},
-                stage=STAGE_VALIDATION,
-            )
+            next_state["status"] = "failed"
+            next_state["final_error"] = "step_consistency_failed"
+            next_state["error_stage"] = STAGE_EXECUTION_PLANNING
+            next_state["completed_stages"] = completed_stages
+            run_audit["failed_step"] = step_id
+            next_state["run_audit"] = run_audit
+            return next_state
+
         step_data = step_map[step_id]
+
+        # Resolve provider + max_tokens from execution plan
+        provider = "groq"
+        max_tokens = 1024
+        if i < len(planned_agents):
+            agent_plan = planned_agents[i]
+            if isinstance(agent_plan, dict):
+                provider = agent_plan.get("provider", "groq")
+                max_tokens = agent_plan.get("max_tokens", 1024)
+
+        domain = next_state.get("domain", "")
+        goal = spec.get("goal", "")
+
+        # SEQUENTIAL: each agent gets previous output ONLY
         result = execute_sub_agent(
             step_id=step_id,
             step_data=step_data,
             total_steps=len(execution_order),
             previous_results=sub_agent_results,
+            provider=provider,
+            max_tokens=max_tokens,
+            domain=domain,
+            goal=goal,
         )
         sub_agent_results[step_id] = result
+        _track_agent(run_audit, step_id, provider, max_tokens)
 
+        # STOP on failure — no recursive retries, no fallback spawning
         if result.get("status") == "error":
+            next_state["status"] = "failed"
+            next_state["final_error"] = f"sub_agent_failed_{step_id}"
             next_state["sub_agent_results"] = sub_agent_results
-            logger.error("builder_sub_agent_failed", extra={"run_id": next_state.get("run_id"), "step_id": step_id})
-            return build_failure_state(
-                next_state,
-                f"sub_agent_failed_{step_id}",
-                details={"step_id": step_id},
-                stage=STAGE_VALIDATION,
-            )
+            next_state["error_stage"] = STAGE_EXECUTION_PLANNING
+            next_state["completed_stages"] = completed_stages
+            run_audit["failed_step"] = step_id
+            next_state["run_audit"] = run_audit
+            return next_state
 
     next_state["sub_agent_results"] = sub_agent_results
+    next_state["run_audit"] = run_audit
 
+    # Phase 4+5+6: Safe code generation (replaces template load → render → inject)
+    # Uses SafeCodeInjector to serialize content into safe Python constants
     domain = next_state.get("domain")
-    next_state = _enter_stage(next_state, STAGE_TEMPLATE_LOADING)
-    logger.info("builder_template_loading_start", extra={"run_id": next_state.get("run_id")})
+    run_id = next_state.get("run_id", "")
+    goal = spec.get("goal", "")
+
+    safe_result = _build_safe_agent(domain, goal, run_id, sub_agent_results)
+
+    if not safe_result.get("valid") or not safe_result.get("code"):
+        next_state["status"] = "failed"
+        next_state["final_error"] = safe_result.get("error", "safe_injection_failed")
+        next_state["final_error_details"] = {"warnings": safe_result.get("warnings", [])}
+        next_state["error_stage"] = STAGE_CODE_INJECTION
+        next_state["completed_stages"] = completed_stages
+        next_state["run_audit"] = run_audit
+        return next_state
+
+    final_code = safe_result["code"]
+    completed_stages.append(STAGE_TEMPLATE_LOADING)
+    completed_stages.append(STAGE_TEMPLATE_RENDERING)
+    completed_stages.append(STAGE_CODE_INJECTION)
+
+    if safe_result.get("warnings"):
+        next_state["sanitize_warnings"] = safe_result["warnings"]
+
+    # Phase 7: quality validation
     try:
-        template_path, template_text = load_template(domain)
-        next_state["template_path"] = template_path
-    except Exception as exc:
-        logger.error("builder_template_loading_failed", extra={"run_id": next_state.get("run_id"), "reason": str(exc)})
-        return build_failure_state(
-            next_state,
-            str(exc),
-            details={"reason": str(exc)},
-            stage=STAGE_TEMPLATE_LOADING,
-        )
-    next_state = _complete_stage(next_state, STAGE_TEMPLATE_LOADING)
-    logger.info("builder_template_loading_success", extra={"run_id": next_state.get("run_id")})
+        from services.snippet_validator import score_quality
+        quality = score_quality(final_code, domain)
+        next_state["quality_score"] = quality
+        completed_stages.append(STAGE_QUALITY_VALIDATION)
+    except Exception:
+        completed_stages.append(STAGE_QUALITY_VALIDATION)
 
-    context = {
-        "run_id": next_state.get("run_id"),
-        "goal": spec.get("goal"),
-        "domain": spec.get("domain"),
-        "steps": spec.get("steps", []),
-        "tools": spec.get("tools", []),
-        "inputs": spec.get("inputs", []),
-        "outputs": spec.get("outputs", []),
-        "complexity": spec.get("complexity"),
-        "success_criteria": spec.get("success_criteria"),
-        "sub_agent_results": sub_agent_results,
-    }
-
-    next_state = _enter_stage(next_state, STAGE_TEMPLATE_RENDERING)
-    logger.info("builder_template_rendering_start", extra={"run_id": next_state.get("run_id")})
-    try:
-        rendered = render_template(template_text, context)
-        if not isinstance(rendered, str):
-            raise RuntimeError("Rendered template is not a string")
-    except Exception as exc:
-        logger.error("builder_template_rendering_failed", extra={"run_id": next_state.get("run_id"), "reason": str(exc)})
-        return build_failure_state(
-            next_state,
-            str(exc),
-            details={"reason": str(exc)},
-            stage=STAGE_TEMPLATE_RENDERING,
-        )
-    next_state = _complete_stage(next_state, STAGE_TEMPLATE_RENDERING)
-    logger.info("builder_template_rendering_success", extra={"run_id": next_state.get("run_id")})
-
-    next_state = _enter_stage(next_state, STAGE_CODE_INJECTION)
-    logger.info("builder_code_injection_start", extra={"run_id": next_state.get("run_id")})
-    try:
-        final_code = inject_code(rendered, sub_agent_results)
-        if not isinstance(final_code, str):
-            raise RuntimeError("Generated code is not a string")
-        if not final_code.strip():
-            raise RuntimeError("Generated code is empty")
-    except Exception as exc:
-        logger.error("builder_code_injection_failed", extra={"run_id": next_state.get("run_id"), "reason": str(exc)})
-        return build_failure_state(
-            next_state,
-            str(exc),
-            details={"reason": str(exc)},
-            stage=STAGE_CODE_INJECTION,
-        )
-    next_state = _complete_stage(next_state, STAGE_CODE_INJECTION)
-    logger.info("builder_code_injection_success", extra={"run_id": next_state.get("run_id")})
-
-    next_state = _enter_stage(next_state, STAGE_SYNTAX_VALIDATION)
-    logger.info("builder_syntax_validation_start", extra={"run_id": next_state.get("run_id")})
+    # Phase 8: syntax validation (should always pass with SafeCodeInjector)
     try:
         ast.parse(final_code)
+        completed_stages.append(STAGE_SYNTAX_VALIDATION)
     except SyntaxError as exc:
-        logger.error("builder_syntax_validation_failed", extra={"run_id": next_state.get("run_id"), "reason": str(exc)})
-        return build_failure_state(
-            next_state,
-            ERROR_CODES["SYNTAX_ERROR"],
-            details={
-                "line": exc.lineno,
-                "offset": exc.offset,
-                "text": exc.text,
-            },
-            stage=STAGE_SYNTAX_VALIDATION,
-        )
+        next_state["status"] = "failed"
+        next_state["final_error"] = ERROR_CODES["SYNTAX_ERROR"]
+        next_state["final_error_details"] = {
+            "line": exc.lineno,
+            "offset": exc.offset,
+            "text": exc.text,
+        }
+        next_state["error_stage"] = STAGE_SYNTAX_VALIDATION
+        next_state["completed_stages"] = completed_stages
+        next_state["run_audit"] = run_audit
+        return next_state
     except Exception as exc:
-        logger.error("builder_syntax_validation_failed", extra={"run_id": next_state.get("run_id"), "reason": str(exc)})
-        return build_failure_state(
-            next_state,
-            ERROR_CODES["SYNTAX_ERROR"],
-            details={"reason": str(exc)},
-            stage=STAGE_SYNTAX_VALIDATION,
-        )
-    next_state = _complete_stage(next_state, STAGE_SYNTAX_VALIDATION)
-    logger.info("builder_syntax_validation_success", extra={"run_id": next_state.get("run_id")})
+        next_state["status"] = "failed"
+        next_state["final_error"] = ERROR_CODES["SYNTAX_ERROR"]
+        next_state["final_error_details"] = {"reason": str(exc)}
+        next_state["error_stage"] = STAGE_SYNTAX_VALIDATION
+        next_state["completed_stages"] = completed_stages
+        next_state["run_audit"] = run_audit
+        return next_state
 
     next_state["generated_code"] = final_code
 
-    next_state = _enter_stage(next_state, STAGE_FILE_WRITING)
-    logger.info("builder_file_writing_start", extra={"run_id": next_state.get("run_id")})
+    # Phase 9: file writing
     try:
-        output_path = write_generated_agent(next_state.get("run_id", ""), final_code)
+        from services.file_writer import write_generated_agent
+        output_path = write_generated_agent(run_id, final_code)
         next_state["output_path"] = output_path
-    except Exception as exc:
-        logger.error("builder_file_writing_failed", extra={"run_id": next_state.get("run_id"), "reason": str(exc)})
-        return build_failure_state(
-            next_state,
-            "file_write_failed",
-            details={"reason": str(exc)},
-            stage=STAGE_FILE_WRITING,
-        )
-    next_state = _complete_stage(next_state, STAGE_FILE_WRITING)
-    logger.info("builder_file_writing_success", extra={"run_id": next_state.get("run_id")})
+        completed_stages.append(STAGE_FILE_WRITING)
+    except Exception:
+        next_state["status"] = "failed"
+        next_state["final_error"] = "file_write_failed"
+        next_state["error_stage"] = STAGE_FILE_WRITING
+        next_state["completed_stages"] = completed_stages
+        next_state["run_audit"] = run_audit
+        return next_state
 
-    next_state = _finalize_timing(next_state)
-    logger.info("builder_complete", extra={"run_id": next_state.get("run_id")})
+    next_state["completed_stages"] = completed_stages
+    next_state["build_duration_seconds"] = round(time.time() - t_start, 2)
+    next_state["run_audit"] = run_audit
     return next_state

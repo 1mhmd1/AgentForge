@@ -311,6 +311,46 @@
     .stat-val { font-size: 20px; font-weight: 700; color: var(--green); }
     .stat-key { font-size: 11px; color: var(--text-muted); }
 
+    /* ── Result Preview ── */
+    .result-preview {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); margin-top: 20px; display: none; overflow: hidden;
+    }
+    .result-preview.visible { display: block; }
+    .preview-tabs {
+      display: flex; border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.2);
+    }
+    .preview-tab {
+      padding: 10px 18px; font-size: 12px; font-weight: 600; color: var(--text-muted);
+      cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s;
+      font-family: var(--font); background: none; border-top: none; border-left: none; border-right: none;
+    }
+    .preview-tab:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+    .preview-tab.active { color: var(--accent-bright); border-bottom-color: var(--accent); background: rgba(139,92,246,0.05); }
+    .preview-body { padding: 0; }
+    .preview-pane { display: none; }
+    .preview-pane.active { display: block; }
+    .preview-iframe {
+      width: 100%; min-height: 500px; border: none; background: #fff; border-radius: 0 0 var(--radius) var(--radius);
+    }
+    .preview-text {
+      padding: 20px; font-size: 14px; line-height: 1.8; color: var(--text);
+      white-space: pre-wrap; max-height: 600px; overflow-y: auto;
+    }
+    .preview-text h1, .preview-text h2, .preview-text h3 { color: var(--accent-bright); margin: 16px 0 8px; }
+    .preview-text strong { color: var(--green); }
+    .preview-json {
+      padding: 16px; font-family: var(--mono); font-size: 12px; line-height: 1.7;
+      color: #c9d1d9; white-space: pre-wrap; max-height: 600px; overflow-y: auto;
+      background: #0a0b10;
+    }
+    .preview-label {
+      display: flex; align-items: center; gap: 8px; padding: 14px 18px;
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;
+      color: var(--text-muted); border-bottom: 1px solid var(--border);
+    }
+    .preview-label .domain-icon { font-size: 16px; }
+
     @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
     .fade-in { animation: fadeIn 0.3s ease both; }
   </style>
@@ -347,6 +387,13 @@
           <span id="btn-label">Run Pipeline</span>
         </button>
       </div>
+    </div>
+    <div id="upload-zone" style="margin-top:10px;display:flex;align-items:center;gap:10px">
+      <label style="font-size:11px;color:var(--text-muted);background:var(--bg-input);border:1px dashed var(--border);border-radius:8px;padding:6px 14px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:6px" onmouseover="this.style.borderColor='rgba(139,92,246,0.4)'" onmouseout="this.style.borderColor='var(--border)'">
+        📎 <span>Attach File</span>
+        <input type="file" id="file-input" accept=".csv,.json,.txt,.md,.xml,.html,.css,.js,.py" style="display:none" onchange="handleFileUpload(this)">
+      </label>
+      <span id="file-status" style="font-size:11px;color:var(--text-muted)"></span>
     </div>
     <div class="examples">
       <span class="example-chip" onclick="setPrompt('Build a landing page for a coffee shop with hero, menu, and contact form')">☕ Coffee shop landing page</span>
@@ -402,6 +449,16 @@
   <!-- Result -->
   <div class="result-card fade-in" id="result-card"></div>
 
+  <!-- Result Preview -->
+  <div class="result-preview fade-in" id="result-preview">
+    <div class="preview-label">
+      <span class="domain-icon" id="preview-domain-icon">📄</span>
+      <span id="preview-domain-label">Result Preview</span>
+    </div>
+    <div class="preview-tabs" id="preview-tabs"></div>
+    <div class="preview-body" id="preview-body"></div>
+  </div>
+
 </div>
 
 <script>
@@ -420,6 +477,40 @@ const STAGE_META = {
 };
 
 let running = false;
+let uploadedFileContent = '';
+
+async function handleFileUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const statusEl = document.getElementById('file-status');
+  statusEl.textContent = `Uploading ${file.name}...`;
+  statusEl.style.color = 'var(--accent-bright)';
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const resp = await fetch(API + '/upload', { method: 'POST', body: formData });
+    const data = await resp.json();
+
+    uploadedFileContent = data.content || '';
+    statusEl.textContent = `✓ ${data.filename} (${(data.size / 1024).toFixed(1)}KB)`;
+    statusEl.style.color = 'var(--green)';
+
+    // Auto-append to prompt
+    const promptEl = document.getElementById('prompt');
+    const currentPrompt = promptEl.value.trim();
+    if (currentPrompt && !currentPrompt.includes('[FILE CONTENT]')) {
+      promptEl.value = currentPrompt + '\n\n[FILE CONTENT]\n' + uploadedFileContent.substring(0, 2000);
+    } else if (!currentPrompt) {
+      promptEl.value = 'Process this file:\n\n[FILE CONTENT]\n' + uploadedFileContent.substring(0, 2000);
+    }
+  } catch (err) {
+    statusEl.textContent = `✕ Upload failed: ${err.message}`;
+    statusEl.style.color = 'var(--red)';
+  }
+}
 
 function setPrompt(text) {
   document.getElementById('prompt').value = text;
@@ -500,6 +591,9 @@ function renderSuccess(data) {
   const qColor = (v) => v >= 0.7 ? 'var(--green)' : v >= 0.4 ? 'var(--yellow)' : 'var(--red)';
   const qBool = (v) => v ? '⚠️' : '✅';
 
+  const audit = data.run_audit || {};
+  const providers = Object.entries(audit.provider_usage || {}).map(([k,v]) => `${k}×${v}`).join(', ') || '—';
+
   card.innerHTML = `
     <div class="result-header">
       <span class="result-status-icon">✅</span>
@@ -511,17 +605,11 @@ function renderSuccess(data) {
       <div class="stat"><div class="stat-val">${data.code_length ?? 0}</div><div class="stat-key">Code chars</div></div>
       <div class="stat"><div class="stat-val" style="color:var(--accent-bright)">${data.build_duration?.toFixed(2) ?? '?'}s</div><div class="stat-key">Build time</div></div>
       <div class="stat"><div class="stat-val" style="color:${qColor(q.implementation_quality ?? 0)}">${q.implementation_quality ?? '?'}</div><div class="stat-key">Quality</div></div>
-      <div class="stat"><div class="stat-val" style="color:${qColor(q.semantic_completeness ?? 0)}">${q.semantic_completeness ?? '?'}</div><div class="stat-key">Semantic</div></div>
       <div class="stat"><div class="stat-val">${qBool(q.has_placeholders)}</div><div class="stat-key">Placeholders</div></div>
-      <div class="stat"><div class="stat-val">${qBool(q.has_missing_imports)}</div><div class="stat-key">Imports</div></div>
+      <div class="stat"><div class="stat-val" style="font-size:12px;color:var(--blue)">${providers}</div><div class="stat-key">Providers</div></div>
     </div>
     ${sub.length ? `<div class="sub-agents">${subHtml}</div>` : ''}
-    <div class="code-header">
-      <span class="code-title">Generated Agent</span>
-      <button class="copy-btn" onclick="copyCode()">Copy</button>
-    </div>
-    <div class="code-block" id="code-output">${escHtml(data.code || '')}</div>
-    ${data.output_path ? `<div style="margin-top:10px;font-size:11px;color:var(--text-muted)">📁 Saved: ${data.output_path}</div>` : ''}
+    ${data.output_path ? `<div style="font-size:11px;color:var(--text-muted)">📁 Saved: ${data.output_path}</div>` : ''}
   `;
 }
 
@@ -558,8 +646,11 @@ function reset() {
   document.getElementById('spec-card').className = 'spec-card';
   document.getElementById('pipeline-section').className = 'pipeline-section';
   document.getElementById('result-card').className = 'result-card';
+  document.getElementById('result-preview').className = 'result-preview';
   document.getElementById('stages-grid').innerHTML = '';
   document.getElementById('spec-steps-list').innerHTML = '';
+  document.getElementById('preview-tabs').innerHTML = '';
+  document.getElementById('preview-body').innerHTML = '';
 }
 
 async function runPipeline() {
@@ -621,6 +712,144 @@ async function runPipeline() {
   document.getElementById('btn-label').textContent = 'Run Pipeline';
 }
 
+function renderResultPreview(data) {
+  const preview = document.getElementById('result-preview');
+  const tabsEl = document.getElementById('preview-tabs');
+  const bodyEl = document.getElementById('preview-body');
+  const domain = data.domain || '';
+  const results = data.sub_agent_results || {};
+
+  // Collect all generated content from sub-agents
+  const parts = [];
+  Object.keys(results).sort().forEach(key => {
+    const r = results[key];
+    const code = (r.generated_code || '').trim();
+    if (code) parts.push(code);
+  });
+  const content = parts.join('\n\n');
+  if (!content && !data.code) return;
+
+  // Domain config
+  const domainConfig = {
+    website_builder: { icon: '🌐', label: 'Website Preview', resultTab: 'Preview' },
+    web_research:    { icon: '🔍', label: 'Research Results', resultTab: 'Research' },
+    document:        { icon: '📄', label: 'Document Output',  resultTab: 'Document' },
+    data_transform:  { icon: '📊', label: 'Data Output',      resultTab: 'Data' },
+  };
+  const cfg = domainConfig[domain] || { icon: '📋', label: 'Result', resultTab: 'Result' };
+
+  document.getElementById('preview-domain-icon').textContent = cfg.icon;
+  document.getElementById('preview-domain-label').textContent = cfg.label;
+
+  // Build tabs
+  const tabs = [
+    { id: 'result', label: cfg.resultTab },
+    { id: 'code', label: 'Generated Agent' },
+  ];
+  tabsEl.innerHTML = tabs.map((t, i) =>
+    `<button class="preview-tab${i === 0 ? ' active' : ''}" data-tab="${t.id}" onclick="switchPreviewTab('${t.id}')">${t.label}</button>`
+  ).join('');
+
+  // Build panes
+  let resultPane = '';
+
+  if (domain === 'website_builder') {
+    // Build full HTML from sub-agent content
+    const htmlContent = buildWebsitePreview(content);
+    resultPane = `<div class="preview-pane active" id="pane-result">
+      <iframe class="preview-iframe" id="preview-iframe" sandbox="allow-scripts"></iframe>
+    </div>`;
+    // We'll inject into iframe after DOM update
+    setTimeout(() => {
+      const iframe = document.getElementById('preview-iframe');
+      if (iframe) {
+        iframe.srcdoc = htmlContent;
+      }
+    }, 50);
+
+  } else if (domain === 'web_research' || domain === 'document') {
+    const rendered = simpleMarkdown(content);
+    resultPane = `<div class="preview-pane active" id="pane-result">
+      <div class="preview-text">${rendered}</div>
+    </div>`;
+
+  } else if (domain === 'data_transform') {
+    let formatted = content;
+    try { formatted = JSON.stringify(JSON.parse(content), null, 2); } catch {}
+    resultPane = `<div class="preview-pane active" id="pane-result">
+      <div class="preview-json">${escHtml(formatted)}</div>
+    </div>`;
+
+  } else {
+    resultPane = `<div class="preview-pane active" id="pane-result">
+      <div class="preview-text">${escHtml(content)}</div>
+    </div>`;
+  }
+
+  const codePane = `<div class="preview-pane" id="pane-code">
+    <div class="code-header" style="padding:14px 18px 0">
+      <span class="code-title">Generated Agent Code</span>
+      <button class="copy-btn" onclick="copyCode()">Copy</button>
+    </div>
+    <div class="code-block" id="code-output" style="margin:8px 18px 18px;border-radius:8px">${escHtml(data.code || '')}</div>
+  </div>`;
+
+  bodyEl.innerHTML = resultPane + codePane;
+  preview.className = 'result-preview visible fade-in';
+}
+
+function switchPreviewTab(tabId) {
+  document.querySelectorAll('.preview-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.tab === tabId);
+  });
+  document.querySelectorAll('.preview-pane').forEach(p => {
+    p.classList.toggle('active', p.id === 'pane-' + tabId);
+  });
+}
+
+function buildWebsitePreview(content) {
+  // Try to detect if content is already a full HTML doc
+  if (content.includes('<!DOCTYPE') || content.includes('<html')) return content;
+
+  // Otherwise wrap it
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #333; }
+  </style>
+</head>
+<body>
+${content}
+</body>
+</html>`;
+}
+
+function simpleMarkdown(text) {
+  let html = escHtml(text);
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Lists
+  html = html.replace(/^- (.+)$/gm, '• $1');
+  html = html.replace(/^\d+\. (.+)$/gm, (m, p1, offset) => {
+    const num = m.match(/^(\d+)/)[1];
+    return `<strong>${num}.</strong> ${p1}`;
+  });
+  // Line breaks
+  html = html.replace(/\n\n/g, '<br><br>');
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
 function handleEvent(msg) {
   const ev = msg.event;
 
@@ -640,6 +869,7 @@ function handleEvent(msg) {
   else if (ev === 'success') {
     setStatus('Pipeline completed ✓', 'done');
     renderSuccess(msg);
+    renderResultPreview(msg);
   }
   else if (ev === 'failed') {
     setStatus('Pipeline failed — ' + (msg.error_stage || '?'), 'error');
