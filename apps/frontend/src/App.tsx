@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import BackgroundLayers from './components/BackgroundLayers';
 import Navbar from './components/Navbar';
+import RoboticCursor from './components/RoboticCursor';
+import SleepingMascot from './components/SleepingMascot';
 import Home from './pages/Home';
 import RunExecution from './pages/RunExecution';
 import Runs from './pages/Runs';
@@ -20,6 +22,23 @@ export default function App() {
     setPage(p);
     if (id !== undefined) setRunId(id);
     if (p === 'run-exec' && id === undefined) setRunId('run_' + Math.random().toString(16).slice(2, 8));
+  };
+
+  const goToChat = () => {
+    const scrollAndFocus = () => {
+      const target = document.getElementById('prompt-section');
+      if (!target) return;
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const ta = target.querySelector('textarea') as HTMLTextAreaElement | null;
+      if (ta) setTimeout(() => ta.focus(), 700);
+    };
+    if (page !== 'home') {
+      navigate('home');
+      // wait for Home to mount and animate in
+      setTimeout(scrollAndFocus, 500);
+    } else {
+      scrollAndFocus();
+    }
   };
 
   const handleSubmit = () => {
@@ -44,6 +63,8 @@ export default function App() {
     <>
       <BackgroundLayers />
       <Navbar current={page === 'run-exec' ? 'runs' : page === 'home' ? null : page} onNavigate={navigate} />
+      <SleepingMascot onGoToChat={goToChat} />
+      <RoboticCursor />
       <div key={page} data-page-root="" style={{ animation: 'pageIn 350ms var(--ease-spring) forwards', position: 'relative', zIndex: 1 }}>
         {content}
       </div>

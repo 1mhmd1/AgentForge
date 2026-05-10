@@ -1,6 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, Suspense, lazy } from 'react';
 import { ArrowRightIcon, ChevronDownIcon, SpinnerIcon, SparkleIcon } from '../components/Icons';
 import { MOCK_AGENTS, MOCK_RUNS } from '../data/mockData';
+
+const OperationsCenter = lazy(() => import('../components/OperationsCenter'));
 
 interface HomeProps {
   onNavigate: (page: string, id?: string) => void;
@@ -30,56 +32,88 @@ export default function Home({ onNavigate, onSubmit }: HomeProps) {
   };
 
   return (
-    <div style={s.root}>
+    <>
+      {/* Full-width hero — escapes the centered max-width container so the office reads edge-to-edge */}
       <section style={s.hero}>
-        <div style={{ ...s.eyebrow, animation: 'fadeUp 600ms var(--ease-spring) both' }}>
-          <SparkleIcon style={{ width: 12, height: 12 }} /> NEXT-GEN AI INFRASTRUCTURE
+        <Suspense fallback={<HeroLoader />}>
+          <OperationsCenter height={s.hero.minHeight as number} />
+        </Suspense>
+        {/* Headline + CTAs as a single block inside the violet wall screen */}
+        <div style={s.heroTextScreen}>
+          <div style={{ ...s.eyebrow, opacity: 0, animation: 'fadeIn 600ms var(--ease-spring) both' }}>
+            <SparkleIcon style={{ width: 12, height: 12 }} /> AUTONOMOUS AGENT OPERATIONS CENTER
+          </div>
+          <h1 style={s.heading}>
+            <span style={{ display: 'inline-block', opacity: 0, animation: 'fadeIn 750ms var(--ease-spring) 0ms both' }}>Build </span>
+            <span style={{ display: 'inline-block', opacity: 0, animation: 'fadeIn 750ms var(--ease-spring) 120ms both' }}>AI </span>
+            <span style={{ display: 'inline-block', opacity: 0, animation: 'fadeIn 750ms var(--ease-spring) 240ms both' }}>Agents</span>
+            <br />
+            <span style={{ display: 'inline-block', opacity: 0, animation: 'fadeIn 750ms var(--ease-spring) 480ms both', background: 'linear-gradient(135deg, #7C3AED 0%, #3B82F6 50%, #06B6D4 100%)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+              Instantly.
+            </span>
+          </h1>
+          <p style={{ ...s.subtitle, opacity: 0, animation: 'fadeIn 600ms var(--ease-spring) 400ms both' }}>
+            A live ecosystem of autonomous agents thinking, building, and coordinating in real time. Describe what you want — your fleet ships it.
+          </p>
         </div>
-        <h1 style={s.heading}>
-          {['Build', 'AI', 'Agents'].map((w, i) => (
-            <span key={i} style={{ display: 'inline-block', animation: `fadeUp 750ms var(--ease-spring) ${i * 120}ms both`, marginRight: '0.25em' }}>{w}</span>
-          ))}
-          <br />
-          <span style={{ display: 'inline-block', animation: 'fadeUp 750ms var(--ease-spring) 480ms both', background: 'linear-gradient(135deg, #7C3AED 0%, #3B82F6 50%, #06B6D4 100%)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            Instantly.
-          </span>
-        </h1>
-        <p style={{ ...s.subtitle, animation: 'fadeUp 600ms var(--ease-spring) 400ms both' }}>
-          Describe what you want. AgentForge builds, tests, and deploys your AI pipeline — in seconds.
-        </p>
-        <div style={{ ...s.ctaRow, animation: 'fadeUp 600ms var(--ease-spring) 500ms both' }}>
+      </section>
+
+      {/* CTAs sit BELOW the hero (under the office row in normal flow) */}
+      <div style={s.heroCTABand}>
+        <div style={{ ...s.ctaRow, opacity: 0, animation: 'fadeIn 600ms var(--ease-spring) 600ms both' }}>
           <PrimaryCTA onClick={() => taRef.current?.focus()}>Start Building <ArrowRightIcon style={{ width: 14, height: 14 }} /></PrimaryCTA>
           <GhostCTA>View Demo</GhostCTA>
         </div>
-      </section>
+      </div>
 
-      <section style={{ ...s.promptWrap, animation: 'cardEntry 800ms var(--ease-spring) 700ms both' }}>
-        <div style={{ ...s.promptCard, ...(focused ? { borderColor: 'rgba(124,58,237,0.4)' } : {}) }}>
-          {focused && <div style={s.conicBorder} />}
-          <textarea
-            ref={taRef}
-            value={prompt}
-            onChange={(e) => { setPrompt(e.target.value); autoResize(e.target); }}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            placeholder="Describe what you want the agent to do…"
-            style={s.textarea}
-          />
-          <div style={s.promptBottom}>
-            <AgentSelector value={agent} onChange={setAgent} open={agentOpen} setOpen={setAgentOpen} />
-            <RunButton running={running} onClick={handleRun} />
+      {/* Centered content below the hero */}
+      <div style={s.root}>
+        <section id="prompt-section" style={{ ...s.promptWrap, animation: 'cardEntry 800ms var(--ease-spring) 700ms both' }}>
+          <div style={{ ...s.promptCard, ...(focused ? { borderColor: 'rgba(124,58,237,0.5)', boxShadow: '0 0 0 1px rgba(124,58,237,0.25), 0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(124,58,237,0.18), inset 0 1px 0 rgba(255,255,255,0.05)' } : {}) }}>
+            <textarea
+              ref={taRef}
+              value={prompt}
+              onChange={(e) => { setPrompt(e.target.value); autoResize(e.target); }}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              placeholder="Describe what you want the agent to do…"
+              style={s.textarea}
+            />
+            <div style={s.promptBottom}>
+              <AgentSelector value={agent} onChange={setAgent} open={agentOpen} setOpen={setAgentOpen} />
+              <RunButton running={running} onClick={handleRun} />
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section style={s.recentWrap}>
-        <div style={s.recentLabel}>Recent Runs</div>
-        <div style={s.recentList}>
-          {MOCK_RUNS.slice(0, 3).map((r, i) => (
-            <RunRowCard key={r.id} run={r} index={i} onClick={() => onNavigate('run-exec', r.id)} />
-          ))}
+        <section style={s.recentWrap}>
+          <div style={s.recentLabel}>Recent Runs</div>
+          <div style={s.recentList}>
+            {MOCK_RUNS.slice(0, 3).map((r, i) => (
+              <RunRowCard key={r.id} run={r} index={i} onClick={() => onNavigate('run-exec', r.id)} />
+            ))}
+          </div>
+        </section>
+      </div>
+    </>
+  );
+}
+
+function HeroLoader() {
+  return (
+    <div aria-hidden="true" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, opacity: 0.85 }}>
+        <div style={{
+          width: 56, height: 56, borderRadius: '50%',
+          border: '2px solid rgba(124,58,237,0.18)',
+          borderTopColor: '#7C3AED', borderRightColor: '#3B82F6',
+          animation: 'spin-conic 1.1s linear infinite',
+          boxShadow: '0 0 24px rgba(124,58,237,0.45)',
+        }} />
+        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, letterSpacing: '0.22em', color: '#67E8F9', textShadow: '0 0 12px rgba(6,182,212,0.55)' }}>
+          INITIALIZING OPERATIONS CENTER
         </div>
-      </section>
+      </div>
     </div>
   );
 }
@@ -152,11 +186,26 @@ function RunRowCard({ run, index, onClick }: { run: typeof MOCK_RUNS[0]; index: 
 
 const s: Record<string, React.CSSProperties> = {
   root: { maxWidth: 1180, margin: '0 auto', padding: '0 32px 80px', position: 'relative', zIndex: 1 },
-  hero: { paddingTop: 120, paddingBottom: 60, textAlign: 'center' },
-  eyebrow: { display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 600, letterSpacing: '0.15em', color: '#06B6D4', border: '1px solid rgba(6,182,212,0.3)', background: 'rgba(6,182,212,0.08)', borderRadius: 100, padding: '6px 16px', marginBottom: 24 },
-  heading: { fontSize: 72, fontWeight: 800, letterSpacing: '-0.04em', lineHeight: 1.05, color: '#E2E8F0', margin: '0 0 24px' },
-  subtitle: { fontSize: 18, fontWeight: 400, color: '#94A3B8', maxWidth: 520, margin: '0 auto 32px', lineHeight: 1.55 },
-  ctaRow: { display: 'flex', gap: 16, justifyContent: 'center' },
+  hero: { position: 'relative', width: '100%', minHeight: 720, overflow: 'hidden' },
+  heroContent: { position: 'relative', zIndex: 2, pointerEvents: 'auto' },
+  heroTextScreen: {
+    position: 'absolute',
+    top: 30,
+    left: 0,
+    right: 0,
+    margin: '0 auto',
+    zIndex: 3,
+    width: 'min(620px, 90vw)',
+    padding: '0 24px',
+    textAlign: 'center',
+    pointerEvents: 'auto',
+    animation: 'fadeIn 700ms var(--ease-spring) both',
+  },
+  eyebrow: { display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 600, letterSpacing: '0.18em', color: '#06B6D4', border: '1px solid rgba(6,182,212,0.4)', background: 'rgba(6,182,212,0.12)', backdropFilter: 'blur(8px)', borderRadius: 100, padding: '6px 16px', marginBottom: 12, textShadow: '0 0 12px rgba(6,182,212,0.5)' },
+  heading: { fontSize: 46, fontWeight: 800, letterSpacing: '-0.035em', lineHeight: 1.05, color: '#E2E8F0', margin: '0 0 12px', textShadow: '0 0 24px rgba(124,58,237,0.6), 0 0 60px rgba(124,58,237,0.4), 0 0 100px rgba(5,10,20,0.85)', textAlign: 'center' },
+  subtitle: { fontSize: 13, fontWeight: 400, color: '#C4CCE0', margin: '0 auto', maxWidth: 480, lineHeight: 1.55, textShadow: '0 0 18px rgba(124,58,237,0.4), 0 0 30px rgba(5,10,20,0.9)', textAlign: 'center' },
+  ctaRow: { display: 'flex', gap: 7, justifyContent: 'center' },
+  heroCTABand: { width: '100%', display: 'flex', justifyContent: 'center', padding: '32px 24px 12px', marginTop: -40, position: 'relative', zIndex: 4 },
   promptWrap: { maxWidth: 720, margin: '40px auto 0', position: 'relative', zIndex: 10 },
   promptCard: { position: 'relative', background: 'rgba(13, 20, 36, 0.8)', backdropFilter: 'blur(24px)', border: '1px solid rgba(26, 39, 64, 0.9)', borderRadius: 20, padding: 32, boxShadow: '0 0 0 1px rgba(124,58,237,0.1), 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05)', transition: 'border-color 300ms ease' },
   conicBorder: { position: 'absolute', inset: -1, borderRadius: 21, background: 'conic-gradient(from 0deg, #7C3AED, #3B82F6, #06B6D4, #7C3AED)', animation: 'spin-conic 3s linear infinite', opacity: 0.4, zIndex: -1, filter: 'blur(2px)' },

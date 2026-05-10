@@ -138,6 +138,10 @@ h1, h2, h3, p { margin: 0; }
   from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 @keyframes cardEntry {
   from { opacity: 0; transform: translateY(40px) scale(0.95); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -211,3 +215,28 @@ h1, h2, h3, p { margin: 0; }
 @keyframes particleFloat2 { from { transform: translateY(-18px) translateX(10px); opacity: .35; } to { transform: translateY(18px) translateX(-10px); opacity: .8; } }
 
 [data-page-root] { opacity: 1; }
+
+/* Robotic cursor — hide native pointer when our overlay is active */
+html.rcursor-on, html.rcursor-on body, html.rcursor-on * { cursor: none !important; }
+
+/* Sleeping mascot keyframes */
+@keyframes mascot-breathe { 0%, 100% { transform: scale(1) translateY(0); } 50% { transform: scale(1.012) translateY(-1px); } }
+@keyframes mascot-coreglow { 0%, 100% { opacity: 0.45; filter: drop-shadow(0 0 4px currentColor); } 50% { opacity: 0.8; filter: drop-shadow(0 0 10px currentColor); } }
+@keyframes mascot-zzz {
+  0%   { opacity: 0;   transform: translate(0, 0) scale(0.6); }
+  20%  { opacity: 0.9; }
+  100% { opacity: 0;   transform: translate(28px, -42px) scale(1.3) rotate(18deg); }
+}
+@keyframes mascot-dock {
+  0%, 100% { opacity: 0.55; transform: scaleX(0.95); }
+  50%      { opacity: 0.95; transform: scaleX(1.05); }
+}
+@keyframes mascot-wakeflash {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  100% { opacity: 0; transform: scale(2.4); }
+}
+@keyframes mascot-arrow-pulse {
+  0%, 100% { opacity: 0.55; transform: translateY(0); }
+  50%      { opacity: 1;    transform: translateY(6px); }
+}
