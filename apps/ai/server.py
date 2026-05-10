@@ -34,6 +34,7 @@ from nodes.builder import (
     STAGE_FILE_WRITING,
 )
 from nodes.validator import validator_node
+from services.mcp_tools import is_enabled as mcp_is_enabled
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -79,7 +80,7 @@ def emit(event: str, data: dict) -> str:
 def stream_pipeline(prompt: str, domain: str | None):
     run_id = f"ui_{uuid.uuid4().hex[:8]}"
 
-    yield emit("started", {"run_id": run_id, "prompt": prompt})
+    yield emit("started", {"run_id": run_id, "prompt": prompt, "mcp_enabled": mcp_is_enabled()})
 
     state = initial_state(run_id=run_id, user_prompt=prompt)
     if domain:

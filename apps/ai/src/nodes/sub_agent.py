@@ -146,6 +146,7 @@ def execute_sub_agent(
     max_tokens: int = 1024,
     domain: str = "",
     goal: str = "",
+    docs_context: str = "",
 ) -> dict[str, Any]:
     previous_output = _compress_previous_output(previous_results)
 
@@ -159,6 +160,13 @@ def execute_sub_agent(
         domain=domain,
         goal=goal,
     )
+
+    if docs_context:
+        prompt = (
+            "Reference docs (from MCP tools, treat as authoritative API/library facts):\n"
+            f"{docs_context}\n\n"
+            + prompt
+        )
 
     last_error: Exception | None = None
     accumulated_usage = {

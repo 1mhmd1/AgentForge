@@ -215,6 +215,13 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
         }
     sub_agent_results: dict[str, Any] = {}
 
+    # MCP doc fetch: one-shot before step_1, off by default. Empty string when
+    # disabled or on any failure -- never blocks the build.
+    from services.mcp_tools import fetch_docs_context as _fetch_docs_context
+    domain_for_docs = next_state.get("domain", "")
+    goal_for_docs = spec.get("goal", "")
+    docs_context = _fetch_docs_context(domain_for_docs, goal_for_docs)
+
     for i, step_id in enumerate(execution_order):
         if step_id not in step_map:
             next_state["status"] = "failed"
@@ -239,7 +246,9 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
         domain = next_state.get("domain", "")
         goal = spec.get("goal", "")
 
-        # SEQUENTIAL: each agent gets previous output ONLY
+        # SEQUENTIAL: each agent gets previous output ONLY.
+        # docs_context is only sent to step_1; later steps already have the
+        # earlier output (which was itself informed by the docs).
         result = execute_sub_agent(
             step_id=step_id,
             step_data=step_data,
@@ -249,6 +258,7 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
             max_tokens=max_tokens,
             domain=domain,
             goal=goal,
+            docs_context=docs_context if i == 0 else "",
         )
         sub_agent_results[step_id] = result
         _track_agent(run_audit, step_id, provider, result.get("usage"))
