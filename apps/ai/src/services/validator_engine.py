@@ -258,6 +258,40 @@ def run_validation(state: dict) -> dict:
         if msg not in validation_report["warnings"]:
             validation_report["warnings"].append(msg)
 
+    # Optional browser-based visual QA (Playwright MCP). Off by default. Only
+    # runs when AGENTFORGE_MCP_BROWSER=1, domain is website_builder, and
+    # execution_validation has already passed. Surfaces findings as warnings
+    # only -- never flips validation_status (no LLM-based pass/fail comparison
+    # at this stage).
+    try:
+        from .browser_validator import is_enabled as _browser_enabled, run_browser_validation
+        if (
+            _browser_enabled()
+            and next_state.get("domain") == "website_builder"
+            and bool(execution_result.get("valid"))
+        ):
+            spec = next_state.get("spec") if isinstance(next_state.get("spec"), dict) else {}
+            browser_started = time.perf_counter()
+            browser_result = run_browser_validation(
+                agent_path=str(next_state.get("output_path", "")),
+                run_id=str(next_state.get("run_id", "")),
+                domain="website_builder",
+                success_criteria=str(spec.get("success_criteria") or ""),
+            )
+            browser_elapsed = time.perf_counter() - browser_started
+            _log_stage(
+                "Browser Validation",
+                bool(browser_result.get("ok")),
+                browser_elapsed,
+                (browser_result.get("warnings") or [None])[0],
+            )
+            for warning in browser_result.get("warnings", []) or []:
+                msg = f"BROWSER: {warning}"
+                if msg not in validation_report["warnings"]:
+                    validation_report["warnings"].append(msg)
+    except Exception as exc:
+        log_event("browser_validator_error", error=f"{type(exc).__name__}:{str(exc)[:160]}")
+
     report_elapsed = time.perf_counter() - audit_started
     _log_stage("Report Generation", validation_report["validation_status"] == "passed", report_elapsed, validation_report["errors"][0] if validation_report["errors"] else None)
 

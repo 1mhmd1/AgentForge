@@ -46,7 +46,17 @@ def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     run_id = next_state.get("run_id")
     record_event(run_id, "node_enter", node="planner")
     try:
-        raw, planner_usage = call_llm(prompt, max_tokens=500)
+        # 4096, not 1024: the planner prompt was tightened to require granular
+        # per-section step decomposition with element-level detail (5 steps +
+        # 5 agents). For rich user prompts (UI/UX specs etc.) gemini's
+        # complete JSON output is typically 1100-2500 tokens. The earlier
+        # 1024 cap truncated mid-agents[] and parse_with_recovery only
+        # salvaged scalar fields via regex -> Spec Validation failed on
+        # steps_missing. 4096 gives comfortable headroom; groq stays terse
+        # and won't consume the extra. Independent of env overrides so the
+        # planner is robust even when GEMINI_MAX_TOKENS_OVERRIDE is not yet
+        # loaded into the running process.
+        raw, planner_usage = call_llm(prompt, max_tokens=4096)
         spec = parse_with_recovery(raw, expected_fields=_PLANNER_REQUIRED_FIELDS)
         # Recovery may return an empty dict for garbage input; require at least
         # one core planning field to consider this a real plan.

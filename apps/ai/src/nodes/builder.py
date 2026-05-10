@@ -1,4 +1,5 @@
 import ast
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -242,6 +243,24 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
             if isinstance(agent_plan, dict):
                 provider = agent_plan.get("provider", "groq")
                 max_tokens = agent_plan.get("max_tokens", 1024)
+        # Inspection-mode override. When AGENTFORGE_SUB_AGENT_MAX_TOKENS is set
+        # (positive integer), it replaces the planner-allocated max_tokens for
+        # every sub_agent call. Use it to see full un-truncated outputs across
+        # all sub_agents regardless of which provider is active. Unset to
+        # restore per-agent budgets from the planner spec. Provider-agnostic;
+        # composes with GEMINI_MAX_TOKENS_OVERRIDE (which is gemini-only).
+        _sub_override = os.getenv("AGENTFORGE_SUB_AGENT_MAX_TOKENS", "").strip()
+        if _sub_override.isdigit() and int(_sub_override) > 0:
+            max_tokens = int(_sub_override)
+        # Provider override. When AGENTFORGE_FORCE_SUB_AGENT_PROVIDER is set
+        # to a known provider name (groq / gemini / minimax / kimi), it
+        # replaces whatever provider the planner spec specified for every
+        # sub_agent call. Useful when LLM_PROVIDER=gemini but the planner
+        # keeps emitting "groq" in its agents[] array. Unset to honor the
+        # planner spec's per-agent provider choice.
+        _force_provider = os.getenv("AGENTFORGE_FORCE_SUB_AGENT_PROVIDER", "").strip().lower()
+        if _force_provider in {"groq", "gemini", "minimax", "kimi"}:
+            provider = _force_provider
 
         domain = next_state.get("domain", "")
         goal = spec.get("goal", "")

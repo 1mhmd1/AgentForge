@@ -8,6 +8,29 @@ or "" on any failure / when disabled. NEVER raises.
 The MCP SDK is async-first; we wrap each call with asyncio.run() so the rest of
 the pipeline stays synchronous (the builder loop is a plain for-loop and stays
 that way per the project's no-async-architecture rule).
+
+Deliberately NOT wired here (evaluated 2026-05-10):
+- Docfork: tools are search_docs(query, library) + fetch_doc(url). Same
+  library-keyed shape as Context7. Redundant for current scope. Re-evaluate
+  if Context7 coverage gaps appear.
+- Filesystem MCP (@modelcontextprotocol/server-filesystem): duplicates
+  file_writer.py which already writes generated_agents/run_*.py. Two write
+  paths would create state divergence.
+- Figma MCP (mcp.figma.com/mcp): two blockers, not one. (1) Rejects Figma
+  personal access tokens with 401 across Bearer/X-Figma-Token/Authorization
+  headers -- the remote MCP appears to require OAuth Bearer tokens. (2) More
+  fundamentally, per Figma's own docs the MCP has no file-id-based tool: it
+  operates on the currently-selected frame in Figma Desktop or on a
+  pre-known frame/layer URL link. There's no fetch_file_variables(file_id)
+  equivalent. AgentForge generates websites for arbitrary prompts, so there
+  is no pre-existing Figma frame per build. Even if OAuth worked, the MCP
+  cannot do server-side design-token fetching for arbitrary builds. If a
+  Figma integration is needed, use the REST API (works with PAT, supports
+  file-id fetches) and a FIGMA_FILE_KEY env var pointing at one canonical
+  design-system file. NOT wired today pending user decision.
+
+The Playwright MCP (visual QA) lives in services/browser_validator.py rather
+than here -- it's a validator stage, not a doc-context source.
 """
 from __future__ import annotations
 
