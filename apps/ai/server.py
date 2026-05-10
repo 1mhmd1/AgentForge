@@ -124,12 +124,21 @@ def stream_pipeline(prompt: str, domain: str | None):
         return
 
     if planner_output.get("status") == "failed":
+        # Surface the REAL exception (kept on planner_node's `final_error_details`)
+        # so the UI doesn't just show the literal string "planner_failed".
+        details = planner_output.get("final_error_details") or {}
+        cause = details.get("message") or planner_output.get("final_error", "planner_failed")
         yield emit("stage", {
             "stage": "PLANNER", "status": "failed",
-            "error": planner_output.get("final_error", "planner_failed"),
+            "error": cause,
+            "details": details,
             "duration": planner_time,
         })
-        yield emit("failed", {"final_error": planner_output.get("final_error"), "error_stage": "PLANNER"})
+        yield emit("failed", {
+            "final_error": cause,
+            "error_stage": "PLANNER",
+            "details": details,
+        })
         return
 
     spec = planner_output.get("spec")
@@ -239,6 +248,11 @@ def stream_pipeline(prompt: str, domain: str | None):
         "validation_status": validated.get("validation_status"),
         "validation_score": validated.get("validation_score"),
         "validation_report": validated.get("validation_report"),
+        # Qdrant persistence outcomes (informational; never blocks success).
+        "template_saved": bool(validated.get("template_saved")),
+        "run_saved": bool(validated.get("run_saved")),
+        "template_retrieved": bool(builder_output.get("template_retrieved")),
+        "template_source_run_id": builder_output.get("template_source_run_id"),
         "sub_agent_results": {
             sid: {
                 "step_id": sid,

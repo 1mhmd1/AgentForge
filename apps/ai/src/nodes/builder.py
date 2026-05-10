@@ -277,13 +277,42 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
     next_state["sub_agent_results"] = sub_agent_results
     next_state["run_audit"] = run_audit
 
-    # Phase 4+5+6: Safe code generation (replaces template load → render → inject)
+    # Phase 4+5+6: Safe code generation (replaces template load -> render -> inject)
     # Uses SafeCodeInjector to serialize content into safe Python constants
     domain = next_state.get("domain")
     run_id = next_state.get("run_id", "")
     goal = spec.get("goal", "")
 
-    safe_result = _build_safe_agent(domain, goal, run_id, sub_agent_results)
+    # Template retrieval: try Qdrant first, fall back to SafeCodeInjector.
+    # Off automatically when QDRANT_URL is unset or sentence-transformers
+    # cannot load. Failures here MUST NOT block the build.
+    retrieved_template = None
+    try:
+        from services import template_store as _ts
+        if _ts.is_available():
+            retrieved_template = _ts.retrieve_template(domain=domain, goal=goal)
+    except Exception:
+        retrieved_template = None
+
+    if retrieved_template and retrieved_template.get("generated_code"):
+        next_state["template_retrieved"] = True
+        next_state["template_source_run_id"] = retrieved_template.get("run_id")
+        next_state["template_name"] = "qdrant_match"
+        record_event(
+            run_id, "template_retrieved",
+            source_run_id=retrieved_template.get("run_id"),
+            score=retrieved_template.get("_score"),
+        )
+        safe_result = {
+            "valid": True,
+            "code": retrieved_template["generated_code"],
+            "warnings": [],
+            "error": None,
+        }
+    else:
+        next_state["template_retrieved"] = False
+        next_state["template_source_run_id"] = None
+        safe_result = _build_safe_agent(domain, goal, run_id, sub_agent_results)
 
     if not safe_result.get("valid") or not safe_result.get("code"):
         next_state["status"] = "failed"

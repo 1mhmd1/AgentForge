@@ -126,6 +126,14 @@ class AgentForgeState(TypedDict):
     build_duration_seconds: Optional[float]
     completed_at: Optional[str]
 
+    # Template retrieval (Qdrant)
+    template_retrieved: Optional[bool]
+    template_source_run_id: Optional[str]
+    # Persistence outcomes -- set by validator after a successful run.
+    # Surfaced in the SSE success event so UI/backend can show "saved to Qdrant".
+    template_saved: Optional[bool]
+    run_saved: Optional[bool]
+
 
 # ===== INITIAL STATE =====
 
@@ -213,4 +221,10 @@ def initial_state(run_id: str, user_prompt: str) -> AgentForgeState:
         started_at=None,
         build_duration_seconds=None,
         completed_at=None,
+
+        # Template retrieval / persistence
+        template_retrieved=None,
+        template_source_run_id=None,
+        template_saved=None,
+        run_saved=None,
     )
