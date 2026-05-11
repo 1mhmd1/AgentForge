@@ -107,8 +107,21 @@ def call_llm(
             )
         except Exception:
             pass
+        # Cap output tokens for the fallback provider. Some fallback models
+        # (e.g. groq llama-3.1-8b-instant, 8k context) have a much smaller
+        # context window than the primary; a max_tokens that was sensible for
+        # gemini-3-flash-preview can leave no room for the prompt and make
+        # EVERY fallback call fail with a context-overflow error. The
+        # per-provider cap is conservative on purpose so the fallback
+        # actually has a chance of returning text on the heaviest steps.
+        _FALLBACK_OUTPUT_CAP = {
+            "groq": 2000,
+            "minimax": 2000,
+            "kimi": 2000,
+        }
+        fallback_max = min(max_tokens, _FALLBACK_OUTPUT_CAP.get(fallback, max_tokens))
         try:
-            return _call_with_retries(fallback, prompt, max_tokens)
+            return _call_with_retries(fallback, prompt, fallback_max)
         except Exception:
             # Surface the primary failure as the canonical error -- the user
             # configured primary intentionally; hiding it behind the fallback

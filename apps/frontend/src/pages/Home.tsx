@@ -78,15 +78,30 @@ export default function Home({ onNavigate }: HomeProps) {
             A live ecosystem of autonomous agents thinking, building, and coordinating in real time. Describe what you want — your fleet ships it.
           </p>
         </div>
-      </section>
 
-      {/* CTAs sit BELOW the hero (under the office row in normal flow) */}
-      <div style={s.heroCTABand}>
-        <div style={{ ...s.ctaRow, opacity: 0, animation: 'fadeIn 600ms var(--ease-spring) 600ms both' }}>
-          <PrimaryCTA onClick={() => taRef.current?.focus()}>Start Building <ArrowRightIcon style={{ width: 14, height: 14 }} /></PrimaryCTA>
-          <GhostCTA>View Demo</GhostCTA>
+        {/* CTAs sit INSIDE the hero, in the floor area below the office row.
+            Anchoring to the hero's bottom rather than the document flow keeps
+            them visually grouped with the scene instead of drifting down the
+            page. */}
+        <div style={s.heroCTABand}>
+          <div style={{ ...s.ctaRow, opacity: 0, animation: 'fadeIn 600ms var(--ease-spring) 600ms both' }}>
+            <PrimaryCTA onClick={() => taRef.current?.focus()}>Start Building <ArrowRightIcon style={{ width: 14, height: 14 }} /></PrimaryCTA>
+            <GhostCTA onClick={() => {
+              const sample = 'Build a landing page for an AI-powered note-taking app, with a hero, three feature cards, and a pricing CTA.';
+              setPrompt(sample);
+              setAgent(AGENT_CATALOG.find((a) => a.domain === 'website_builder') ?? AGENT_CATALOG[0]);
+              requestAnimationFrame(() => {
+                const ta = taRef.current;
+                if (ta) {
+                  ta.focus();
+                  autoResize(ta);
+                  ta.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              });
+            }}>View Demo</GhostCTA>
+          </div>
         </div>
-      </div>
+      </section>
 
       {/* Centered content below the hero */}
       <div style={s.root}>
@@ -150,10 +165,10 @@ function PrimaryCTA({ children, onClick }: { children: React.ReactNode; onClick?
   );
 }
 
-function GhostCTA({ children }: { children: React.ReactNode }) {
+function GhostCTA({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
   const [hover, setHover] = useState(false);
   return (
-    <button onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ padding: '14px 32px', borderRadius: 10, background: hover ? 'rgba(124,58,237,0.08)' : 'transparent', border: `1px solid ${hover ? 'rgba(124,58,237,0.5)' : 'rgba(148,163,184,0.3)'}`, color: hover ? '#E2E8F0' : '#94A3B8', fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 15, cursor: 'pointer', transition: 'all 200ms ease' }}>{children}</button>
+    <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ padding: '14px 32px', borderRadius: 10, background: hover ? 'rgba(124,58,237,0.08)' : 'transparent', border: `1px solid ${hover ? 'rgba(124,58,237,0.5)' : 'rgba(148,163,184,0.3)'}`, color: hover ? '#E2E8F0' : '#94A3B8', fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 15, cursor: 'pointer', transition: 'all 200ms ease' }}>{children}</button>
   );
 }
 
@@ -244,9 +259,19 @@ const s: Record<string, React.CSSProperties> = {
   heading: { fontSize: 46, fontWeight: 800, letterSpacing: '-0.035em', lineHeight: 1.05, color: '#E2E8F0', margin: '0 0 12px', textShadow: '0 0 24px rgba(124,58,237,0.6), 0 0 60px rgba(124,58,237,0.4), 0 0 100px rgba(5,10,20,0.85)', textAlign: 'center' },
   subtitle: { fontSize: 13, fontWeight: 400, color: '#C4CCE0', margin: '0 auto', maxWidth: 480, lineHeight: 1.55, textShadow: '0 0 18px rgba(124,58,237,0.4), 0 0 30px rgba(5,10,20,0.9)', textAlign: 'center' },
   ctaRow: { display: 'flex', gap: 7, justifyContent: 'center' },
-  heroCTABand: { width: '100%', display: 'flex', justifyContent: 'center', padding: '32px 24px 12px', marginTop: -40, position: 'relative', zIndex: 4 },
+  heroCTABand: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 96,
+    display: 'flex',
+    justifyContent: 'center',
+    padding: '0 24px',
+    zIndex: 4,
+    pointerEvents: 'auto',
+  },
   promptWrap: { maxWidth: 720, margin: '40px auto 0', position: 'relative', zIndex: 10 },
-  promptCard: { position: 'relative', background: 'rgba(13, 20, 36, 0.8)', backdropFilter: 'blur(24px)', border: '1px solid rgba(26, 39, 64, 0.9)', borderRadius: 20, padding: 32, boxShadow: '0 0 0 1px rgba(124,58,237,0.1), 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05)', transition: 'border-color 300ms ease' },
+  promptCard: { position: 'relative', background: 'rgba(13, 20, 36, 0.8)', backdropFilter: 'blur(24px)', borderWidth: 1, borderStyle: 'solid', borderColor: 'rgba(26, 39, 64, 0.9)', borderRadius: 20, padding: 32, boxShadow: '0 0 0 1px rgba(124,58,237,0.1), 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05)', transition: 'border-color 300ms ease' },
   conicBorder: { position: 'absolute', inset: -1, borderRadius: 21, background: 'conic-gradient(from 0deg, #7C3AED, #3B82F6, #06B6D4, #7C3AED)', animation: 'spin-conic 3s linear infinite', opacity: 0.4, zIndex: -1, filter: 'blur(2px)' },
   textarea: { width: '100%', minHeight: 120, maxHeight: 300, background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontFamily: 'Inter, sans-serif', fontSize: 15, color: '#E2E8F0', lineHeight: 1.65, caretColor: '#7C3AED', padding: 0, boxSizing: 'border-box' },
   error: { marginTop: 12, fontSize: 13, color: '#FCA5A5', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', padding: '8px 12px', borderRadius: 8 },

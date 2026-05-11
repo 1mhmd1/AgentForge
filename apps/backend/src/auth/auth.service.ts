@@ -51,7 +51,27 @@ export class AuthService {
       });
     }
     const hash = await bcrypt.hash(password, 12);
-    const user = await this.usersService.createUser({ email, name, passwordHash: hash });
+    let user = await this.usersService.createUser({ email, name, passwordHash: hash });
+
+    // Bootstrap: if the registering email matches ADMIN_EMAIL, promote to
+    // SUPER_ADMIN immediately. Intended as a one-shot bootstrap for the first
+    // admin in a fresh deployment — once promoted, prefer the admin console
+    // (RolesGuard-protected) for further role changes.
+    // process.env is populated by ConfigModule's envFilePath. ADMIN_EMAIL is
+    // an optional bootstrap convenience, not part of the typed AppConfig.
+    const adminEmail = (process.env.ADMIN_EMAIL ?? '').trim().toLowerCase();
+    if (adminEmail && email.trim().toLowerCase() === adminEmail) {
+      user = await this.usersService.setRole(user.id, Role.SUPER_ADMIN);
+      this.logger.log(`Bootstrap promoted ${email} -> SUPER_ADMIN via ADMIN_EMAIL env`);
+      await this.audit.log({
+        action: AuditAction.ADMIN_USER_ROLE_CHANGE,
+        userId: user.id,
+        resource: 'USER',
+        resourceId: user.id,
+        metadata: { role: Role.SUPER_ADMIN, source: 'ADMIN_EMAIL_bootstrap' },
+        ...ctx,
+      });
+    }
 
     await this.audit.log({
       action: AuditAction.AUTH_REGISTER,

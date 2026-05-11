@@ -837,53 +837,6 @@ function ValidatorClipboard() {
   );
 }
 
-/* ───────────────────────── Builder Boss (minimal) ───────────────────────── */
-function BuilderBoss({ position }: { position: [number, number, number] }) {
-  return (
-    <group position={position} scale={1.1}>
-      {/* Hex dais */}
-      <mesh position={[0, -1.18, 0]}>
-        <cylinderGeometry args={[1.05, 1.25, 0.22, 6]} />
-        <meshStandardMaterial color="#2a1c54" metalness={0.5} roughness={0.5} emissive={PURPLE} emissiveIntensity={0.7} />
-      </mesh>
-      {/* Torso */}
-      <RoundedBox args={[0.86, 1.3, 0.66]} radius={0.09} smoothness={2} position={[0, 0.5, 0]}>
-        <meshStandardMaterial color="#5a3fb8" metalness={0.5} roughness={0.4} emissive={PURPLE} emissiveIntensity={0.7} />
-      </RoundedBox>
-      {/* Gold V-trim */}
-      <mesh position={[0, 0.6, 0.34]}>
-        <planeGeometry args={[0.07, 0.95]} />
-        <meshBasicMaterial color={AMBER} toneMapped={false} />
-      </mesh>
-      {/* Pauldrons */}
-      <RoundedBox args={[0.42, 0.34, 0.42]} radius={0.08} smoothness={2} position={[-0.55, 1.1, 0]}>
-        <meshStandardMaterial color="#4a2f9e" metalness={0.6} roughness={0.4} emissive={PURPLE} emissiveIntensity={0.65} />
-      </RoundedBox>
-      <RoundedBox args={[0.42, 0.34, 0.42]} radius={0.08} smoothness={2} position={[0.55, 1.1, 0]}>
-        <meshStandardMaterial color="#4a2f9e" metalness={0.6} roughness={0.4} emissive={PURPLE} emissiveIntensity={0.65} />
-      </RoundedBox>
-      {/* Head + visor + crown band + spike */}
-      <group position={[0, 1.55, 0]}>
-        <RoundedBox args={[0.58, 0.5, 0.5]} radius={0.09} smoothness={2}>
-          <meshStandardMaterial color="#6a4dc4" metalness={0.6} roughness={0.4} emissive={PURPLE} emissiveIntensity={0.7} />
-        </RoundedBox>
-        <mesh position={[0, 0.0, 0.252]}>
-          <planeGeometry args={[0.52, 0.18]} />
-          <meshBasicMaterial color={NEON} toneMapped={false} />
-        </mesh>
-        <mesh position={[0, 0.27, 0]}>
-          <torusGeometry args={[0.24, 0.024, 6, 14]} />
-          <meshBasicMaterial color={AMBER} toneMapped={false} />
-        </mesh>
-        <mesh position={[0, 0.4, 0]}>
-          <coneGeometry args={[0.055, 0.22, 6]} />
-          <meshBasicMaterial color={AMBER} toneMapped={false} />
-        </mesh>
-      </group>
-    </group>
-  );
-}
-
 /* ───────────────────────── Micro-drones (lightweight) ───────────────────────── */
 function MicroDrone({ basePos, seed = 0 }: { basePos: [number, number, number]; seed?: number }) {
   const ref = useRef<THREE.Group>(null!);
@@ -1215,9 +1168,6 @@ function Scene() {
 
       {/* Validator pacing left↔right on the walkway behind the row */}
       <Validator />
-
-      {/* Builder Boss — orchestrating the team from a raised dais behind the workers */}
-      <BuilderBoss position={[0, 0.5, -5.0]} />
     </>
   );
 }

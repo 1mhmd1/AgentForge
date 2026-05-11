@@ -42,7 +42,7 @@ export class RunStreamService {
     runId: string,
     actor: { sub: string; role: Role },
     initialRun: { id: string; userId: string; status: RunStatus },
-  ): Observable<{ event?: string; data: any; comment?: string }> {
+  ): Observable<{ type?: string; data: any; comment?: string }> {
     return new Observable((subscriber) => {
       let aborted = false;
       let upstreamHandle: AiStreamHandle | null = null;
@@ -75,7 +75,7 @@ export class RunStreamService {
           initialRun.status === RunStatus.CANCELLED
         ) {
           const full = await this.runs.findById(runId, actor);
-          subscriber.next({ event: 'snapshot', data: { status: full.status, run: full } });
+          subscriber.next({ type: 'snapshot', data: { status: full.status, run: full } });
           subscriber.complete();
           return;
         }
@@ -96,7 +96,7 @@ export class RunStreamService {
             errorStage: 'connect',
           });
           subscriber.next({
-            event: 'failed',
+            type: 'failed',
             data: { final_error: 'ai_service_unavailable', error_stage: 'connect' },
           });
           terminalReceived = true;
@@ -110,7 +110,7 @@ export class RunStreamService {
             if (aborted) break;
             // Forward verbatim FIRST so the client sees events in real time;
             // persistence is the second-class concern.
-            subscriber.next({ event: ev.event, data: ev.data });
+            subscriber.next({ type: ev.event, data: ev.data });
 
             try {
               const isTerminal = await this.applyEvent(run.id, run.userId, ev);
@@ -130,7 +130,7 @@ export class RunStreamService {
           if (!terminalReceived && !aborted) {
             await this.runs.markInterrupted(run.id);
             subscriber.next({
-              event: 'failed',
+              type: 'failed',
               data: {
                 final_error: 'ai_service_disconnected',
                 error_stage: 'mid_stream',
@@ -147,7 +147,7 @@ export class RunStreamService {
           if (!terminalReceived) {
             await this.runs.markInterrupted(run.id);
             subscriber.next({
-              event: 'failed',
+              type: 'failed',
               data: {
                 final_error: 'ai_service_disconnected',
                 error_stage: 'mid_stream',

@@ -17,8 +17,10 @@ Thumbs.db
 
 postgres_data/
 *.db
-venv
-.venv
+# Python venv at repo root (this repo expects it at <repo>/venv/, NOT under apps/ai/).
+# Both forms ignored to also catch any stray apps/*/venv someone might create.
+venv/
+.venv/
 
 # Python cache
 __pycache__/
@@ -44,15 +46,25 @@ apps/frontend/dist/
 apps/frontend/.env.local
 apps/frontend/.env.development.local
 apps/frontend/.env.production.local
+apps/frontend/.vite/
+.vite/
 
-# Workspace stub — the real packages/shared comes from the frontend branch
-# and will replace this when merged. Do not commit the stub.
+# Workspace stub for `packages/shared` — referenced by apps/backend/package.json
+# but no real shared package exists yet. The stub (package.json + index.{js,d.ts})
+# lives locally so npm install resolves the workspace; do not commit it.
 packages/shared/
 
 # Test artifacts + temp
 /tmp/_agf_*
 scripts/_smoke_*.json
 *.smoke.log
+
+# One-shot probe scripts (per memory rule 17.13 — must be deleted before
+# wrapping up, but ignore them so accidental check-ins don't happen).
+/_probe*.py
+/_trace*.py
+/_smoke*.py
+/_check*.py
 
 # Prisma local state
 apps/backend/prisma/dev.db

@@ -2,13 +2,13 @@
 
 This file is the single hand-off document for AgentForge. Give it to any new AI/dev so they fully understand the project, the user, decisions made, conventions to follow, corrections already burned-in, and what NOT to do.
 
-Last updated: 2026-05-11 (post Qdrant persistence verification + provider migration to gemini primary). Owner: Mhmd Salim (rabih@chipatech.com).
+Last updated: 2026-05-12 (post end-to-end UI integration: SSE event-type fix, LLM fallback context cap, admin credits UI, admin cancel-all-active, dynamic sub-agent display, HTML fragment rendering for web_research/document). Owner: Mhmd Salim (rabih@chipatech.com).
 
 ---
 
 ## 0. Quick-start: if you read nothing else
 
-1. **Project**: AgentForge takes a user prompt -> AI plans + builds + validates a runnable Python agent -> returns it and persists successful runs to Qdrant Cloud for template reuse. Monorepo with `apps/ai` (Python, this is the live one), `apps/backend` (NestJS, in development by a friend), `apps/frontend` (React, mostly done, mocked).
+1. **Project**: AgentForge takes a user prompt -> AI plans + builds + validates a runnable Python agent -> returns it and persists successful runs to Qdrant Cloud for template reuse. Monorepo with `apps/ai` (Python, live), `apps/backend` (NestJS, **LIVE since 2026-05-11/12** -- streams SSE, owns auth/credits/admin/persistence), `apps/frontend` (Vite React, **LIVE, wired to real backend since 2026-05-11/12**).
 2. **Pipeline**: `prompt_optimizer -> planner -> builder -> validator`. Sub-agents inside builder run SEQUENTIALLY (plain for-loop, no parallel, no async).
 3. **Validator** runs 7 stages: state -> syntax -> file -> execution -> audit -> triviality -> browser (website only) -> report. Only on `validation_status == "passed"` does `_persist_to_qdrant` fire.
 4. **Persistence**: Qdrant Cloud (eu-central-1). `templates_<domain>` per-domain collections (cosine, 384-dim, all-MiniLM-L6-v2) + single `runs` collection. Dedup threshold 0.75, upgrade margin 5 quality points.
@@ -898,6 +898,231 @@ The user has a parallel auto-memory system at `~/.claude/projects/c--Users-1mhmd
 - `reference_qdrant_smoke_test.md`
 
 This root-level `MEMORY.md` is the consolidated hand-off. If you (a future AI) are running with the auto-memory system loaded, prefer the per-rule files for canonical content. If not, this single document covers everything.
+
+---
+
+## 20.5 2026-05-12 session — end-to-end UI integration (the big one)
+
+This session connected the dots between frontend, backend, AI service, Postgres, Qdrant, and gemini/groq for real. Every fact below comes from observed behavior on this user's machine, with code references.
+
+### Critical NestJS gotcha: MessageEvent uses `type`, NOT `event`
+
+**Symptom**: Frontend stepper stuck on "Planner: thinking" forever even though backend was emitting SSE events. Captured raw bytes showed `id: N\ndata: {...}` with no `event:` line. Frontend listeners (`es.addEventListener('started'|'stage'|'spec'|'success'|'failed')`) never fired because every event hit the default `message` event type.
+
+**Root cause**: [`@nestjs/common`'s `MessageEvent.type` is the field that becomes the SSE `event:` line](node_modules/@nestjs/common/interfaces/http/message-event.interface.d.ts). The code in [`run-stream.service.ts`](apps/backend/src/runs/run-stream.service.ts) was using `subscriber.next({ event: 'stage', data })` which Nest ignores.
+
+**Fix**: 6 spots in `run-stream.service.ts` and 1 in `runs.controller.ts`. `event:` -> `type:` in every `subscriber.next(...)` and in the Observable return type annotation.
+
+**How to verify**: `curl http://localhost:3000/api/runs/<id>/stream -H "Authorization: Bearer <jwt>"` -- output must show `event: started\nid: 1\ndata: {...}` with the `event:` line present.
+
+### LLM fallback: works as-is, but groq needs a max_tokens cap
+
+`call_llm` in [`apps/ai/src/llm/llm.py`](apps/ai/src/llm/llm.py) reads `LLM_FALLBACK_PROVIDER` from env **regardless** of the `provider=` argument the caller passes -- so sub-agents that explicitly request gemini still fall back to groq when gemini fails. This was verified with a probe that forced gemini failure via bogus key; fallback fired in 3.4s.
+
+**But**: groq's `llama-3.1-8b-instant` context window is much smaller than gemini-3-flash-preview's. When a heavy step (step_5 final-CSS, max_tokens=4000) falls back, the input prompt + 4000-token output blows the groq context, every retry fails, sub_agent returns `status="error"`, builder emits `sub_agent_failed_step_5`.
+
+**Fix applied 2026-05-12**: `call_llm`'s fallback path now caps `max_tokens` per fallback provider via `_FALLBACK_OUTPUT_CAP = {"groq": 2000, "minimax": 2000, "kimi": 2000}`. So when gemini fails and groq picks up, groq is called with `max_tokens=min(requested, 2000)` to leave room for the prompt. Restart `python server.py` after editing this file -- module-level changes don't hot-reload.
+
+### Gemini free tier quota maths
+
+- Gemini free tier: **20 requests/day, per project, per model**.
+- One AgentForge run = 1 optimizer + 1 planner + N sub-agents (3-7). Average ~7 calls.
+- After ~3 runs the daily quota is exhausted; subsequent runs only succeed via groq fallback.
+- Quota resets at midnight Pacific.
+- When `AGENTFORGE_FORCE_SUB_AGENT_PROVIDER=gemini` is set in .env, EVERY sub-agent uses gemini, accelerating quota exhaustion. Removing this env lets the planner-assigned `provider` field (per agent) determine routing.
+
+### ConcurrencyGuard: cap=1 + stuck-run trap
+
+[`apps/backend/src/runs/concurrency.guard.ts`](apps/backend/src/runs/concurrency.guard.ts) caps each user at `Plan.maxConcurrentRuns ?? 1` runs in non-terminal state (`STARTED | PLANNING | BUILDING | VALIDATING`). When pipelines crash without emitting a terminal event, runs get stuck in those states forever and block new submissions with HTTP 429 `CONCURRENT_LIMIT`.
+
+**Recovery**: Admin endpoint added 2026-05-12 -- `POST /api/admin/runs/cancel-active` (and a button in the Admin Console -> Overview tab) that bulk-marks every non-terminal run as `CANCELLED`. Uses Prisma `$transaction` to update both `Run` and `AgentRun` rows in one atomic step.
+
+Backend method: `RunsService.cancelAllActive(userId?)` -- when `userId` is passed it scopes to one user, else system-wide. Returns `{ cancelled: N }`.
+
+### Credits ledger != LLM quota
+
+These are two completely separate "out of credits" surfaces. Confusion guaranteed if you forget:
+
+| System | What it tracks | What blocks new runs |
+|---|---|---|
+| **LLM provider quota** (gemini API daily 20/day, groq rate limits) | API calls to upstream LLM | When upstream returns 429 -> fallback fires; user never sees this directly |
+| **Backend credits ledger** (`CreditEntry` table) | $ value of LLM tokens consumed | `RunsController.create` checks balance via `CreditsService` -> 402-style block before AI is even called |
+
+The user's typical confusion: gemini 429s in the streaming view, then submits a new run, sees "Out of credits -- top up" and assumes it's the same thing. It isn't. The first is gemini's daily quota; the second is the user's backend ledger balance.
+
+**Admin grant endpoint**: `POST /api/admin/users/:id/grant-credits` -- body `{ amount: number (cents), reason?: string }`. Wired to a **+ Credits** button per user row in Admin -> Members tab (modal with amount input, $ preview, presets, optional reason). Implemented 2026-05-12.
+
+**Pricing** (cents per 1k tokens) lives in `.env`:
+```
+LLM_PRICE_INPUT_PER_1K=0.5
+LLM_PRICE_OUTPUT_PER_1K=1.5
+```
+A typical website_builder run costs ~5500 cents. 1M cents ≈ 180 runs.
+
+### Planner: dynamic agent count (2-7), driven by sections in brief
+
+The planner prompt [`apps/ai/src/prompts/planner_prompt.py`](apps/ai/src/prompts/planner_prompt.py) was tightened 2026-05-12 to make agent count actually scale with the user's brief instead of defaulting to 5.
+
+**New rule** (rule 2 in the prompt): First list the sections the brief explicitly names or implies, then produce ONE agent per section plus ONE mandatory final CSS agent. Concrete sizing:
+- "one-pager hero + contact" -> 3 agents (hero+chrome, contact+footer, css)
+- "coffee shop landing page" (no detail) -> 4 agents (hero+chrome, menu, contact+footer, css)
+- "landing page with hero, menu, about, contact, footer" -> 5 agents
+- "SaaS site with hero, features, pricing, testimonials, FAQ, contact, footer" -> 7 agents
+
+Agent count must be between 2 and 7.
+
+### Frontend display: roles, not "Step N"
+
+The planner emits `execution_plan.agents[]` with each entry having a `role` field like `skeleton_and_hero`, `menu_section`, `complete_responsive_css`. The frontend was reading `plan.steps[]` (array of instruction STRINGS) instead, so step.role was always undefined and the fallback name "Step N" displayed.
+
+**Fix** in [`apps/frontend/src/pages/RunExecution.tsx`](apps/frontend/src/pages/RunExecution.tsx):
+- `spec` event handler now prefers `execution_plan.agents` over `execution_plan.steps`
+- New `formatSubAgentName(entry, index)` helper turns `skeleton_and_hero` -> "Skeleton & Hero", `step_N`/`agent_N` -> "Step N", capped at 22 chars
+
+**Workflow theater spacing**: per-agent slot width scales with count -- 170px (1-5), 150px (6-8), 120px (9+). Was 100px fixed which caused role-name overlap.
+
+### Frontend artifact extraction: read JSON-encoded vars
+
+`safe_injector` produces Python files where the rendered output sits in JSON-encoded string assignments:
+```python
+HTML_CONTENT = "<!DOCTYPE html>\n<html lang='en'>..."
+CSS_CONTENT  = ""
+JS_CONTENT   = ""
+```
+
+The old `extractEmbeddedArtifact` scanned for `"""..."""` triple-quoted blocks, found the **f-string template** containing literal `{HTML_CONTENT}`, and dumped THAT into the iframe -- so the preview showed `{HTML_CONTENT}` instead of the website.
+
+**Fix**: New `readJsonStringVar(name)` matches `NAME = "<json string>"` with escape handling, then `JSON.parse`s the value. Checked in priority: `HTML_CONTENT`, `CONTENT`, `CSV_CONTENT`, `JSON_CONTENT`, `MARKDOWN_CONTENT`. Falls back to longest `"""..."""` block only if no named variable is found -- and even then skips blocks containing literal `{HTML_CONTENT}` / `{CSS_CONTENT}` etc.
+
+### Frontend: HTML fragment rendering for web_research/document
+
+The web_research and document sub-agents emit HTML fragments (no `<html>` wrapper, just `<h1>...<section>...<table>...`). The old `looksLikeHtml` only matched `<!DOCTYPE html>` / `<html>` / `<body>`, so fragments fell through to a `<pre>` text dump.
+
+**Fix**:
+- `looksLikeHtml` now also matches fragment-indicative tags: `<h1>`, `<h2>`, `<h3>`, `<section>`, `<article>`, `<table>`, `<ul>`, `<ol>`, `<p>`, `<div>`, `<header>`, `<main>`, `<footer>`
+- New `wrapHtmlFragment(html)` wraps fragments in a complete `<html>` document with **FRAGMENT_STYLES** (Inter font, 760px max-width, purple-accented headings, styled tables with hover, dark code blocks, blockquote styling) so the iframe preview reads like a real document
+
+### WorkflowTheater visual tweaks
+
+- **Middle sub-agent line**: when `n` is odd, the middle agent's x=0 made the Bezier control point `cx = x * 0.5 = 0` -> a degenerate vertical line that visually merged with the floor center axis. New code: `cx = x === 0 ? 16 : x * 0.5` -- gives the middle agent a visible arc.
+- **Validator inspection beam**: path was `M 320 30 Q 200 90 10 160` which ended in the sub-agent strip area (below Builder's feet). Moved endpoint up to `M 320 30 Q 200 80 10 130` so the green beam lands between Builder's legs as designed.
+
+### Admin Console additions (2026-05-12)
+
+- `+ Credits` button per Member row, opens a modal with amount (cents) input, live $ preview, presets ($10/$100/$1k/$10k), optional reason field. Calls `POST /api/admin/users/:id/grant-credits`.
+- `Cancel all active runs` button on the Overview tab, top of page. Confirms then calls `POST /api/admin/runs/cancel-active`. Reports the count.
+
+Both calls go through the existing `RolesGuard` (ADMIN | SUPER_ADMIN) and write `AuditLog` entries.
+
+### Auth: Google OAuth callback URL
+
+[Memory: Google OAuth callback URL must include /api]. NestJS applies the `/api` global prefix to every controller; `auth/google/callback` becomes `/api/auth/google/callback`. **Both** `GOOGLE_CALLBACK_URL` in `.env` AND the Authorized redirect URI in Google Cloud Console MUST contain `/api`. The error "redirect_uri_mismatch (Error 400)" is always one of these two being missing.
+
+### Login response shape
+
+Backend wraps responses via `ResponseInterceptor` so `POST /api/auth/login` returns:
+```json
+{
+  "success": true,
+  "data": {
+    "user": { "id", "email", "role" },
+    "token": "<jwt>"  // field name is `token`, NOT `access_token`
+  }
+}
+```
+And sets two cookies: `token` (`HttpOnly`, `SameSite=Lax`, 15min) and `refresh_token` (path scoped to `/api/auth`, 30d).
+
+### Railway Postgres pitfalls
+
+The user runs against Railway-hosted Postgres. Two recurring gotchas:
+
+1. **Internal vs public URL**: Railway exposes `DATABASE_URL` (internal `postgres.railway.internal:5432`) and `DATABASE_PUBLIC_URL` (public proxy `*.proxy.rlwy.net:<port>`). Local dev MUST use the public URL; the internal one only resolves inside Railway's network. The local `.env` `DATABASE_URL` should point at the **public** value.
+
+2. **Pool exhaustion**: default Prisma connection pool is small. Bump via URL params: `?connection_limit=15&pool_timeout=20&connect_timeout=30`.
+
+### Node.js 25 HTTP keep-alive gotcha (still present)
+
+The [`AiProxyService`](apps/backend/src/runs/ai-proxy.service.ts) deliberately sets `Connection: close` on every fetch (ping AND openRunStream) to work around Node 25's built-in fetch reusing half-dead pooled sockets. Do not "optimize" this away -- it manifests as ERR_INTERNAL_ASSERTION in detachSocket / streams closing mid-event with no visible error. The 6-second timeout on `ping()` (vs the original 2s) is also part of this workaround.
+
+### Stuck-run cleanup recipe
+
+If the pipeline ever crashes leaving runs stuck (typical after a backend restart mid-stream, or after the SSE event-type bug above):
+
+```powershell
+# 1. log in as SUPER_ADMIN
+$login = Invoke-WebRequest -Uri http://localhost:3000/api/auth/login -Method POST -ContentType 'application/json' -Body '{"email":"admin@agentforge.local","password":"Admin123!"}' -UseBasicParsing
+$token = ($login.Content | ConvertFrom-Json).data.token
+
+# 2. bulk-cancel all non-terminal runs
+Invoke-WebRequest -Uri http://localhost:3000/api/admin/runs/cancel-active -Method POST -Headers @{Authorization="Bearer $token"} -UseBasicParsing
+```
+
+Or just click the **Cancel all active runs** button in Admin -> Overview.
+
+### Endpoints added this session
+
+| Method | Route | What it does |
+|---|---|---|
+| POST | `/api/admin/users/:id/grant-credits` | Admin-only positive credit grant (already existed; **wired to UI 2026-05-12**) |
+| POST | `/api/admin/runs/cancel-active` | NEW 2026-05-12. Bulk-cancels every active run system-wide. |
+
+### Files changed this session (for git context)
+
+```
+M  apps/backend/src/runs/run-stream.service.ts          (event: -> type: x6)
+M  apps/backend/src/runs/runs.controller.ts             (Observable return type type:)
+M  apps/backend/src/runs/runs.service.ts                (cancelAllActive method)
+M  apps/backend/src/admin/monitoring/monitoring.controller.ts (POST /admin/runs/cancel-active)
+M  apps/backend/src/admin/monitoring/monitoring.module.ts (imports RunsModule)
+M  apps/ai/src/llm/llm.py                               (fallback max_tokens cap)
+M  apps/ai/src/prompts/planner_prompt.py                (dynamic 2-7 agent count rule)
+M  apps/frontend/src/pages/RunExecution.tsx             (role names, fragment wrapping, JSON var extraction)
+M  apps/frontend/src/pages/Admin.tsx                    (+ Credits modal, Cancel-all button)
+M  apps/frontend/src/components/WorkflowTheater.tsx     (spacing, middle arc, validator beam endpoint)
+M  apps/frontend/src/api/admin.ts                       (grantCredits + cancelAllActiveRuns)
+M  .gitignore                                           (probe-script patterns)
+M  MEMORY.md                                            (this update)
+```
+
+---
+
+## 20.6 New hard rules / patterns from this session (additions to section 17)
+
+### NestJS SSE: use `type` not `event`
+
+When emitting via `subscriber.next(...)` to an `@Sse()`-decorated route, the field name is `type` -- `event` is ignored. `MessageEvent` in `@nestjs/common` is `{ data, id?, type?, retry? }`. The corresponding output line on the wire is `event: <type>\n`. Get this wrong and every event arrives on the browser's default `message` listener.
+
+### LLM fallback works regardless of `provider=` arg
+
+`call_llm` reads `LLM_FALLBACK_PROVIDER` from env on every call. Sub-agents that pass `provider="gemini"` still benefit from the fallback. Do NOT add a separate fallback mechanism in sub_agent.py -- it's already there one layer up.
+
+### Cap fallback output budget per provider
+
+When falling back to a provider with a smaller context window (groq's llama-3.1-8b -- 8k vs gemini-3-flash's 1M), cap `max_tokens` for the fallback call. The current cap is **2000** for `groq`/`minimax`/`kimi`. Without the cap, heavy steps (step_5 final CSS @ 4000 tokens) blow the groq context and every fallback fails silently.
+
+### Recovery: bulk-cancel stuck runs
+
+When `ConcurrencyGuard` returns 429 `CONCURRENT_LIMIT` and new runs are blocked, the cause is stuck non-terminal runs from previous crashes -- not actual concurrent activity. Use `POST /api/admin/runs/cancel-active` (or the UI button). Don't try to "fix" the concurrency cap as a workaround.
+
+### Frontend artifact extraction priority
+
+Pull from `HTML_CONTENT`/`CONTENT`/`CSV_CONTENT`/etc. (JSON-encoded var assignments) FIRST; the `"""..."""` triple-quoted scan is a legacy fallback that gets confused by f-string templates containing literal `{HTML_CONTENT}` placeholders.
+
+### Render web_research/document outputs as styled HTML pages
+
+These domains produce HTML fragments (no `<html>` wrapper). Detect via tag-prefix regex, wrap in a styled `<html><head><style>FRAGMENT_STYLES</style></head><body>{fragment}</body></html>` before passing to `<iframe srcDoc>`. Plain `<pre>` text dump is unacceptable -- the user explicitly called this out.
+
+### Don't argue with `inline-style` linter warnings
+
+`apps/frontend` is intentionally an inline-style codebase (`const s: Record<string, React.CSSProperties> = { ... }` per file). The linter warns on every `style={...}` -- those warnings are pre-existing and ignored. Don't refactor to CSS files / CSS modules / Tailwind classes. **Confirmed again this session by the user.**
+
+### Both `.env` and Google Cloud Console need `/api` in the callback URL
+
+NestJS global `/api` prefix means the OAuth callback route is `/api/auth/google/callback`. Set BOTH `GOOGLE_CALLBACK_URL` env AND the Authorized redirect URI in Google Cloud Console to include `/api`. "redirect_uri_mismatch" is always this.
+
+### Local `DATABASE_URL` -> Railway PUBLIC URL
+
+Railway gives two URLs in its Postgres Variables tab: internal (`postgres.railway.internal`) and public (`*.proxy.rlwy.net`). Local `.env` `DATABASE_URL` MUST be the public one + `?connection_limit=15&pool_timeout=20&connect_timeout=30` for stability.
 
 ---
 

@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { HexIcon } from './Icons';
+import { useAuth } from '../auth/AuthContext';
+import { isAdmin } from '../auth/roles';
 
 interface NavbarProps {
   current: string | null;
@@ -7,13 +9,21 @@ interface NavbarProps {
 }
 
 export default function Navbar({ current, onNavigate }: NavbarProps) {
-  const items = [
-    { id: 'runs', label: 'Runs' },
-    { id: 'agents', label: 'Agents' },
-    { id: 'pricing', label: 'Pricing' },
-    { id: 'admin', label: 'Admin' },
-    { id: 'account', label: 'Account' },
-  ];
+  const { user } = useAuth();
+  const items = useMemo(() => {
+    const base = [
+      { id: 'runs', label: 'Runs' },
+      { id: 'agents', label: 'Agents' },
+      { id: 'pricing', label: 'Pricing' },
+      { id: 'account', label: 'Account' },
+    ];
+    // Admin entry is only rendered for admin/super-admin users.
+    // Normal users have no way to discover the route from the UI.
+    if (isAdmin(user)) {
+      base.splice(3, 0, { id: 'admin', label: 'Admin' });
+    }
+    return base;
+  }, [user]);
   const [hovered, setHovered] = useState<string | null>(null);
 
   return (

@@ -13,6 +13,7 @@ import Admin from './pages/Admin';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
 import { AuthProvider, useAuth } from './auth/AuthContext';
+import RoleGate, { Forbidden } from './auth/RoleGate';
 import { SpinnerIcon } from './components/Icons';
 
 export default function App() {
@@ -62,7 +63,7 @@ function AppShell() {
     case 'agents':   content = <Agents onNavigate={navigate} />; break;
     case 'pricing':  content = <Pricing />; break;
     case 'account':  content = <Account />; break;
-    case 'admin':    content = <Admin />; break;
+    case 'admin':    content = <RoleGate allow={['ADMIN', 'SUPER_ADMIN']} fallback={<Forbidden />}><Admin /></RoleGate>; break;
     case 'settings': content = <Settings />; break;
     default:         content = <Home onNavigate={navigate} />;
   }

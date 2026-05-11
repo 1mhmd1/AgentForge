@@ -4,7 +4,7 @@ const PARTICLE_COLORS = ['#7C3AED', '#3B82F6', '#06B6D4', '#A78BFA'];
 
 export default function BackgroundLayers() {
   const particles = useMemo(() => {
-    return Array.from({ length: 120 }, (_, i) => ({
+    return Array.from({ length: 36 }, (_, i) => ({
       id: i,
       x: Math.random() * 100,
       y: Math.random() * 100,
@@ -21,8 +21,6 @@ export default function BackgroundLayers() {
       <div style={s.grid} />
       <div style={{ ...s.orb, ...s.orb1 }} />
       <div style={{ ...s.orb, ...s.orb2 }} />
-      <div style={{ ...s.orb, ...s.orb3 }} />
-      <div style={{ ...s.orb, ...s.orb4 }} />
       {particles.map((p) => (
         <span
           key={p.id}
@@ -38,6 +36,7 @@ export default function BackgroundLayers() {
             boxShadow: `0 0 ${p.size * 3}px ${p.color}`,
             animation: `particleFloat${p.id % 3} ${p.duration}s ease-in-out ${p.delay}s infinite alternate`,
             pointerEvents: 'none',
+            willChange: 'transform, opacity',
           }}
         />
       ))}
@@ -61,25 +60,15 @@ const s: Record<string, React.CSSProperties> = {
     pointerEvents: 'none',
     mixBlendMode: 'overlay',
   },
-  orb: { position: 'absolute', borderRadius: '50%', pointerEvents: 'none' },
+  orb: { position: 'absolute', borderRadius: '50%', pointerEvents: 'none', willChange: 'transform' },
   orb1: {
-    width: 900, height: 900, background: '#7C3AED', opacity: 0.16,
-    filter: 'blur(110px)', top: -220, left: -180,
-    animation: 'float-orb-1 28s ease-in-out infinite alternate',
+    width: 720, height: 720, background: '#7C3AED', opacity: 0.18,
+    filter: 'blur(70px)', top: -200, left: -160,
+    animation: 'float-orb-1 32s ease-in-out infinite alternate',
   },
   orb2: {
-    width: 750, height: 750, background: '#3B82F6', opacity: 0.14,
-    filter: 'blur(130px)', bottom: -220, right: -160,
-    animation: 'float-orb-2 30s ease-in-out infinite alternate-reverse',
-  },
-  orb3: {
-    width: 450, height: 450, background: '#06B6D4', opacity: 0.12,
-    filter: 'blur(80px)', top: '38%', right: '12%',
-    animation: 'float-orb-3 25s ease-in-out infinite alternate',
-  },
-  orb4: {
-    width: 500, height: 500, background: '#A78BFA', opacity: 0.10,
-    filter: 'blur(100px)', top: '32%', left: '8%',
-    animation: 'float-orb-2 27s ease-in-out infinite alternate',
+    width: 600, height: 600, background: '#3B82F6', opacity: 0.16,
+    filter: 'blur(80px)', bottom: -180, right: -140,
+    animation: 'float-orb-2 34s ease-in-out infinite alternate-reverse',
   },
 };

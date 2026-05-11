@@ -366,6 +366,43 @@ export class RunsService {
     });
   }
 
+  /**
+   * Bulk-cancel every non-terminal run (admin recovery tool). When `userId`
+   * is provided, scope to a single user's runs; otherwise sweep system-wide.
+   * Returns the number of runs that were transitioned to CANCELLED.
+   */
+  async cancelAllActive(userId?: string): Promise<{ cancelled: number }> {
+    const where = {
+      deletedAt: null,
+      status: { in: ACTIVE_STATUSES },
+      ...(userId ? { userId } : {}),
+    };
+    const active = await this.prisma.run.findMany({
+      where,
+      select: { id: true, startedAt: true },
+    });
+    if (active.length === 0) return { cancelled: 0 };
+
+    const completedAt = new Date();
+    const ids = active.map((r) => r.id);
+
+    await this.prisma.$transaction([
+      this.prisma.run.updateMany({
+        where: { id: { in: ids } },
+        data: {
+          status: RunStatus.CANCELLED,
+          completedAt,
+          finalError: 'cancelled_by_admin_bulk',
+        },
+      }),
+      this.prisma.agentRun.updateMany({
+        where: { runId: { in: ids } },
+        data: { status: AgentRunStatus.CANCELLED, error: 'cancelled_by_admin_bulk' },
+      }),
+    ]);
+    return { cancelled: active.length };
+  }
+
   /** Soft delete — keeps file path on AI service intact, hides from queries. */
   async softDelete(runId: string, actor: { sub: string; role: Role }) {
     const run = await this.prisma.run.findUnique({ where: { id: runId } });

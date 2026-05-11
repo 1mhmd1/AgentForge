@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckIcon, XIcon, CopyIcon, SpinnerIcon } from '../components/Icons';
 import WorkflowTheater from '../components/WorkflowTheater';
-import { getRun, getRunCode, openRunStream, RunDetail, RunStreamEvent } from '../api/runs';
+import { Domain, getRun, getRunCode, openRunStream, RunDetail, RunStreamEvent } from '../api/runs';
 
 interface RunExecProps {
   runId: string | null;
@@ -43,18 +43,49 @@ function formatTimestamp(elapsedMs: number): string {
   return `${mm}:${ss}`;
 }
 
+/**
+ * Turn a planner agent entry into a short human-readable label.
+ *   { role: "skeleton_and_hero" }  -> "Skeleton & Hero"
+ *   { role: "menu_section" }       -> "Menu Section"
+ *   { role: "step_3" }             -> "Step 3"
+ *   "build the hero"               -> "Build The Hero"  (string fallback)
+ * Always ≤ 22 chars so the workflow theater fan doesn't overflow.
+ */
+function formatSubAgentName(entry: any, index: number): string {
+  const raw =
+    (typeof entry === 'string' ? entry : null) ??
+    entry?.role ??
+    entry?.name ??
+    entry?.task ??
+    entry?.id ??
+    `Step ${index + 1}`;
+  const s = String(raw).trim();
+  const stepMatch = s.match(/^(?:step|agent)_(\d+)$/i);
+  if (stepMatch) return `Step ${stepMatch[1]}`;
+  const titled = s
+    .replace(/_and_/gi, ' & ')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+  return (titled || `Step ${index + 1}`).slice(0, 22);
+}
+
 export default function RunExecution({ runId, onNavigate }: RunExecProps) {
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [stageStates, setStageStates] = useState<StageState[]>(['idle', 'idle', 'idle']);
   const [completed, setCompleted] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [tab, setTab] = useState<'output' | 'explanation'>('output');
+  const [tab, setTab] = useState<'preview' | 'output' | 'explanation'>('preview');
   const [copied, setCopied] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [subAgents, setSubAgents] = useState<SubAgent[]>([]);
   const [code, setCode] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [validationScore, setValidationScore] = useState<number | null>(null);
+  const [domain, setDomain] = useState<Domain | null>(null);
 
   const startedAt = useRef(Date.now());
   const logId = useRef(0);
@@ -78,6 +109,7 @@ export default function RunExecution({ runId, onNavigate }: RunExecProps) {
     setCode('');
     setErrorMessage(null);
     setValidationScore(null);
+    setDomain(null);
     setStreaming(true);
     startedAt.current = Date.now();
     logId.current = 0;
@@ -110,6 +142,7 @@ export default function RunExecution({ runId, onNavigate }: RunExecProps) {
             setStreaming(false);
             if (isFail && run.finalError) setErrorMessage(run.finalError);
             if (run.validationScore !== null && run.validationScore !== undefined) setValidationScore(run.validationScore);
+            if (run.domain) setDomain(run.domain);
             if (run.generatedCode) setCode(run.generatedCode);
             else if (run.id) getRunCode(run.id).then(setCode).catch(() => { /* noop */ });
             pushLog('◈', `Snapshot loaded (status=${run.status})`, isFail ? 'err' : 'ok');
@@ -151,14 +184,22 @@ export default function RunExecution({ runId, onNavigate }: RunExecProps) {
           }
           case 'spec': {
             const plan = ev.data?.spec?.execution_plan ?? ev.data?.execution_plan;
-            const steps: any[] = Array.isArray(plan?.steps) ? plan.steps
+            // Prefer the `agents[]` array - each entry has a meaningful `role`
+            // like "skeleton_and_hero" or "menu_section". Fall back to the
+            // raw `steps[]` strings only when the planner didn't produce a
+            // structured plan.
+            const agents: any[] = Array.isArray(plan?.agents) ? plan.agents
+              : Array.isArray(ev.data?.spec?.agents) ? ev.data.spec.agents
+              : [];
+            const items: any[] = agents.length ? agents
+              : Array.isArray(plan?.steps) ? plan.steps
               : Array.isArray(plan) ? plan
               : Array.isArray(ev.data?.spec?.steps) ? ev.data.spec.steps
               : [];
-            if (steps.length) {
-              const ents: SubAgent[] = steps.map((step, i) => ({
+            if (items.length) {
+              const ents: SubAgent[] = items.map((it, i) => ({
                 id: i + 1,
-                task: String(step?.id ?? step?.name ?? step?.task ?? `Step ${i + 1}`).slice(0, 18),
+                task: formatSubAgentName(it, i),
                 done: false,
               }));
               setSubAgents(ents);
@@ -176,6 +217,7 @@ export default function RunExecution({ runId, onNavigate }: RunExecProps) {
             setCompleted(true);
             setStreaming(false);
             setValidationScore(score);
+            if (typeof ev.data?.domain === 'string') setDomain(ev.data.domain as Domain);
             if (typeof ev.data?.code === 'string' && ev.data.code) {
               setCode(ev.data.code);
             } else if (runId) {
@@ -261,7 +303,7 @@ export default function RunExecution({ runId, onNavigate }: RunExecProps) {
             ? <ResultFailed message={errorMessage} />
             : !completed
               ? <ResultLoading />
-              : <ResultComplete tab={tab} setTab={setTab} copied={copied} onCopy={handleCopy} code={code} />}
+              : <ResultComplete tab={tab} setTab={setTab} copied={copied} onCopy={handleCopy} code={code} domain={domain} />}
         </div>
       </div>
     </div>
@@ -336,19 +378,132 @@ function ResultFailed({ message }: { message: string | null }) {
 
 const skel: React.CSSProperties = { background: 'linear-gradient(90deg, #0D1424 0%, #1A2740 50%, #0D1424 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.5s linear infinite', borderRadius: 4 };
 
-function ResultComplete({ tab, setTab, copied, onCopy, code }: { tab: 'output' | 'explanation'; setTab: (t: 'output' | 'explanation') => void; copied: boolean; onCopy: () => void; code: string }) {
+/**
+ * Pulls the embedded artifact out of a generated `run_*.py` file.
+ *
+ * Modern safe_injector skeletons store rendered content in JSON-encoded
+ * double-quoted string literals like:
+ *   HTML_CONTENT = "<!DOCTYPE html>\n<html ...>..."
+ *   CONTENT      = "..."
+ * (The value is produced by `json.dumps` so it round-trips through
+ * JSON.parse.) Earlier skeletons used `"""..."""` triple-quoted blocks; we
+ * fall back to that when no named variable is found.
+ */
+function extractEmbeddedArtifact(code: string): string | null {
+  if (!code) return null;
+
+  // Match `NAME = "<json-string>"` where the string handles escaped chars.
+  const readJsonStringVar = (name: string): string | null => {
+    const re = new RegExp(`${name}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*")`);
+    const m = code.match(re);
+    if (!m) return null;
+    try {
+      const v = JSON.parse(m[1]);
+      return typeof v === 'string' ? v : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const candidates = [
+    readJsonStringVar('HTML_CONTENT'),
+    readJsonStringVar('CONTENT'),
+    readJsonStringVar('CSV_CONTENT'),
+    readJsonStringVar('JSON_CONTENT'),
+    readJsonStringVar('MARKDOWN_CONTENT'),
+  ];
+  for (const v of candidates) {
+    if (v && v.trim().length >= 20) return v;
+  }
+
+  // Legacy fallback for older triple-quoted skeletons.
+  const matches = [...code.matchAll(/"""([\s\S]*?)"""/g)];
+  if (!matches.length) return null;
+  let longest = '';
+  for (const m of matches) {
+    // Skip f-string templates that still contain `{HTML_CONTENT}` placeholders.
+    if (/\{(?:HTML|CSS|JS|CONTENT|JSON|MARKDOWN|CSV)_CONTENT\}/.test(m[1])) continue;
+    if (m[1].length > longest.length) longest = m[1];
+  }
+  const trimmed = longest.trim();
+  return trimmed.length >= 20 ? trimmed : null;
+}
+
+function looksLikeHtml(text: string): boolean {
+  // Full pages
+  if (/<!DOCTYPE\s+html|<html[\s>]|<body[\s>]/i.test(text)) return true;
+  // Fragments emitted by web_research / document sub-agents -- they ship a
+  // tree of <h1>/<section>/<table>/etc. without a wrapping <html>.
+  if (/<(?:h1|h2|h3|section|article|table|ul|ol|p|div|header|main|footer)\b/i.test(text)) return true;
+  return false;
+}
+
+const FRAGMENT_STYLES = `
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; max-width: 760px; margin: 28px auto; padding: 0 28px 48px; color: #1a202c; line-height: 1.65; background: #fdfdfd; }
+  h1, h2, h3, h4 { color: #1a202c; line-height: 1.25; }
+  h1 { font-size: 30px; font-weight: 800; margin: 0 0 12px; padding-bottom: 12px; border-bottom: 3px solid #7C3AED; }
+  h2 { font-size: 22px; font-weight: 700; margin: 2em 0 0.6em; color: #7C3AED; }
+  h3 { font-size: 17px; font-weight: 600; margin: 1.6em 0 0.4em; color: #3B82F6; }
+  p { margin: 0.8em 0; }
+  ul, ol { padding-left: 22px; margin: 0.6em 0; }
+  li { margin: 0.35em 0; }
+  table { width: 100%; border-collapse: collapse; margin: 1.4em 0; font-size: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  th { background: linear-gradient(180deg, #f8fafc, #f1f5f9); font-weight: 600; text-align: left; padding: 10px 14px; border-bottom: 2px solid #e2e8f0; color: #475569; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+  td { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+  tr:hover td { background: #fafbfc; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.9em; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 8px; overflow-x: auto; }
+  pre code { background: transparent; padding: 0; color: inherit; }
+  blockquote { border-left: 4px solid #A78BFA; padding: 4px 16px; margin: 1.2em 0; color: #64748b; font-style: italic; background: #faf5ff; border-radius: 0 6px 6px 0; }
+  a { color: #7C3AED; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  section { margin: 1.6em 0; }
+  hr { border: 0; border-top: 1px solid #e2e8f0; margin: 2em 0; }
+`;
+
+function wrapHtmlFragment(html: string): string {
+  // Already a complete document - render as-is.
+  if (/<!DOCTYPE\s+html|<html[\s>]/i.test(html)) return html;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Document</title>
+<style>${FRAGMENT_STYLES}</style>
+</head>
+<body>
+${html}
+</body>
+</html>`;
+}
+
+const DOMAIN_LABELS: Record<Domain, string> = {
+  website_builder: 'Website preview',
+  document: 'Document',
+  web_research: 'Research findings',
+  data_transform: 'Transformed data',
+};
+
+function ResultComplete({ tab, setTab, copied, onCopy, code, domain }: { tab: 'preview' | 'output' | 'explanation'; setTab: (t: 'preview' | 'output' | 'explanation') => void; copied: boolean; onCopy: () => void; code: string; domain: Domain | null }) {
+  const artifact = useMemo(() => extractEmbeddedArtifact(code), [code]);
+  const isHtml = useMemo(() => !!artifact && (domain === 'website_builder' || looksLikeHtml(artifact)), [artifact, domain]);
   const display = code || '// Generated code will appear here once the run completes.';
+  const previewLabel = domain ? DOMAIN_LABELS[domain] : 'Preview';
+
   return (
     <div style={{ padding: 20, animation: 'fadeUp 500ms ease both' }}>
       <div style={{ display: 'flex', gap: 24, marginBottom: 16, borderBottom: '1px solid rgba(26,39,64,0.6)' }}>
-        {(['output', 'explanation'] as const).map((t) => (
+        {(['preview', 'output', 'explanation'] as const).map((t) => (
           <button type="button" key={t} onClick={() => setTab(t)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px 0', fontSize: 13, fontWeight: 600, fontFamily: 'Inter, sans-serif', color: tab === t ? '#E2E8F0' : '#475569', textTransform: 'capitalize', position: 'relative' }}>
             {t}
             {tab === t && <span style={{ position: 'absolute', left: 0, bottom: -1, width: '100%', height: 2, background: 'linear-gradient(90deg, #7C3AED, #06B6D4)', borderRadius: 1 }} />}
           </button>
         ))}
       </div>
-      {tab === 'output' ? (
+
+      {tab === 'preview' && (
+        <ResultPreview artifact={artifact} isHtml={isHtml} label={previewLabel} />
+      )}
+
+      {tab === 'output' && (
         <div style={{ position: 'relative', background: '#020608', borderRadius: 10, padding: 20, maxHeight: 480, overflow: 'auto' }}>
           <button type="button" onClick={onCopy} disabled={!code} style={{ position: 'absolute', top: 12, right: 12, background: 'transparent', border: 'none', cursor: code ? 'pointer' : 'not-allowed', color: copied ? '#22C55E' : '#475569', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontFamily: 'Inter, sans-serif', transition: 'color 200ms ease' }}>
             {copied ? <CheckIcon style={{ width: 14, height: 14 }} /> : <CopyIcon style={{ width: 14, height: 14 }} />}
@@ -356,7 +511,9 @@ function ResultComplete({ tab, setTab, copied, onCopy, code }: { tab: 'output' |
           </button>
           <pre style={{ margin: 0, fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: '#E2E8F0', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{display}</pre>
         </div>
-      ) : (
+      )}
+
+      {tab === 'explanation' && (
         <div style={{ fontSize: 14, color: '#94A3B8', lineHeight: 1.7, fontFamily: 'Inter, sans-serif' }}>
           <p style={{ marginBottom: 12 }}>The pipeline ran in <span style={{ color: '#A78BFA' }}>3 stages</span>:</p>
           <ul style={{ paddingLeft: 18, color: '#94A3B8' }}>
@@ -366,6 +523,42 @@ function ResultComplete({ tab, setTab, copied, onCopy, code }: { tab: 'output' |
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+function ResultPreview({ artifact, isHtml, label }: { artifact: string | null; isHtml: boolean; label: string }) {
+  if (!artifact) {
+    return (
+      <div style={{ padding: '36px 20px', textAlign: 'center', color: '#94A3B8', fontSize: 14, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 13, color: '#475569', marginBottom: 6 }}>No embedded output detected.</div>
+        Switch to <span style={{ color: '#A78BFA' }}>Output</span> to view the generated Python source.
+      </div>
+    );
+  }
+
+  if (isHtml) {
+    return (
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.18em', color: '#475569', textTransform: 'uppercase', marginBottom: 10 }}>{label}</div>
+        <iframe
+          title="generated-website-preview"
+          srcDoc={wrapHtmlFragment(artifact)}
+          sandbox="allow-same-origin"
+          style={{ width: '100%', height: 460, border: '1px solid rgba(26,39,64,0.6)', borderRadius: 10, background: '#ffffff', display: 'block' }}
+        />
+      </div>
+    );
+  }
+
+  // Document / web_research / data_transform: render as plain text in a
+  // monospace pane. We deliberately don't try to "render" markdown — the
+  // safe_injector text artifacts come back as plain bodies and look fine
+  // monospace-wrapped.
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.18em', color: '#475569', textTransform: 'uppercase', marginBottom: 10 }}>{label}</div>
+      <pre style={{ margin: 0, background: '#020608', borderRadius: 10, padding: 20, maxHeight: 460, overflow: 'auto', fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#E2E8F0', lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{artifact}</pre>
     </div>
   );
 }

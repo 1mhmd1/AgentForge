@@ -132,7 +132,7 @@ export class RunsController {
   async streamRun(
     @Param('id') runId: string,
     @CurrentUser() user: { sub: string; role: Role },
-  ): Promise<Observable<{ event?: string; data: any; comment?: string }>> {
+  ): Promise<Observable<{ type?: string; data: any; comment?: string }>> {
     // Ownership / 404 checks happen here so they surface as proper HTTP
     // responses instead of getting swallowed inside an Observable.error.
     const snapshot = await this.runs.assertCanRead(runId, user);

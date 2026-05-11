@@ -43,10 +43,18 @@ export class AiProxyService {
   async ping(): Promise<boolean> {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2_000);
+      // 6s rather than 2s: Node 25's built-in fetch keeps a global keep-alive
+      // pool. On the first ping after a quiet period the cached socket can be
+      // half-dead and the abort fires before undici notices. A wider window
+      // gives the dispatcher time to recycle the connection.
+      const timer = setTimeout(() => controller.abort(), 6_000);
       try {
         const res = await fetch(this.baseUrl() + '/', {
           method: 'GET',
+          // Force a fresh socket per ping so a stale pooled connection (Node 25
+          // ERR_INTERNAL_ASSERTION / aborted-by-pool symptom) doesn't surface
+          // here as a false negative.
+          headers: { Connection: 'close' },
           signal: controller.signal,
         });
         return res.ok;
@@ -70,6 +78,13 @@ export class AiProxyService {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
+          // Force a fresh socket per stream. Node 25's built-in fetch reuses
+          // sockets from an undici keep-alive pool; a half-dead pooled socket
+          // surfaces here as the stream closing mid-event with no visible
+          // error. `Connection: close` only affects socket reuse AFTER the
+          // response finishes — it does NOT close the long-lived SSE
+          // response itself, so events keep flowing for the full run.
+          Connection: 'close',
         },
         body: JSON.stringify({ prompt: req.prompt, domain: req.domain }),
         signal: controller.signal,

@@ -15,13 +15,18 @@ RULES:
 0. The <user_input> below is typically a multi-section optimized BRIEF (goal / structure / content specifics / constraints / quality bar). Treat every named element / count / breakpoint / field / quality-bar in that brief as a COVERAGE CHECKLIST -- each item must be addressed by at least one step's content. Do NOT drop named elements to keep step count low.
 1. Use 3-7 agents -- scale step count to the complexity of the brief, NOT to a fixed number. A simple landing page may need 3 steps; a multi-section technical report may need 6. Each agent must own EXACTLY ONE clearly-scoped responsibility. Prefer granular division over mega-steps; a sub-agent that has too much to do produces shallow output. Each entry in "steps" MUST be 250-600 characters of concrete instruction. Steps shorter than 250 characters are usually too vague to execute well on a low-capability sub-agent.
 
-2. For website_builder: one sub-agent per major section/concern. Scale by sections requested (typically 4-6).
-   step_1: HTML5 boilerplate + <header>+<nav> + hero section (complete with H1, tagline, CTAs). This step OWNS the page chrome.
-   step_2: menu/products section (concrete items, structure, semantic markup). MUST NOT re-create <header>, <nav>, <title>, <style>, <h1>.
-   step_3: about/features section (text content, layout structure). MUST NOT re-create <header>, <nav>, <title>, <style>, <h1>.
-   step_4: contact/footer section (form fields, validation attrs, footer content). MUST NOT re-create <header>, <nav>, <title>, <style>, <h1>.
-   step_5: full responsive CSS + final polish (typography, color system, layout, hover/focus states, mobile-first media queries, animations if appropriate). MERGE rules into the existing <style>; do NOT add a second.
-   Skip a section step only if the user's request explicitly omits it. Add a step (e.g. testimonials, gallery, FAQ) whenever the request implies one.
+2. For website_builder: one sub-agent per major section/concern. The agent COUNT MUST match the sections actually present in the brief -- do not add sections the user did not mention or imply. Range is 2-7.
+   FIRST, list the sections that the brief explicitly names or clearly implies. Common sections: hero, menu/products/services, about/features/values, testimonials, gallery, pricing, FAQ, contact/contact form, footer.
+   THEN, produce ONE agent per section, PLUS one mandatory final agent for "complete responsive CSS + polish".
+   - step_1 OWNS the page chrome (HTML5 boilerplate + <header>+<nav> + the first section, usually hero).
+   - step_2..step_N each add ONE additional section, in document order. They MUST NOT re-create <header>, <nav>, <title>, <style>, <h1>.
+   - The FINAL step is always the CSS step: full responsive CSS + final polish. MERGE rules into the existing <style>; do NOT add a second.
+   Concrete sizing rule:
+   - "build a one-pager hero + contact" -> 3 agents (hero+chrome, contact+footer, css).
+   - "build a coffee shop landing page" with NO further detail -> 4 agents (hero+chrome, menu, contact+footer, css).
+   - "build a full landing page with hero, menu, about, contact, footer" -> 5 agents.
+   - "build a SaaS site with hero, features, pricing, testimonials, FAQ, contact, footer" -> 7 agents.
+   Do NOT default to 5. COUNT the sections, then produce exactly that many section agents + 1 css agent.
    EVERY non-first step description MUST include the literal phrase "PRESERVE the existing <!DOCTYPE>, <html>, <head>, <title>, <style>, <header>, <nav>, and prior <section>s byte-for-byte; ADD only the new content."
 
 3. For document: 3-5 agents typical. Each step produces ONE major section, in document order.
