@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(venv/Scripts/python.exe -c \"import sentence_transformers; print\\('sentence-transformers OK', sentence_transformers.__version__\\)\")"
+    ]
+  }
+}

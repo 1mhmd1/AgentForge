@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../auth/AuthContext';
 
 const ACTIVITY = [
   { id: 1, text: 'Run completed', detail: 'Web Research · 5.3s', time: '2 min ago', tint: '#22C55E' },
@@ -10,7 +11,17 @@ const ACTIVITY = [
 
 export default function Account() {
   const [meterFill, setMeterFill] = useState(0);
+  const { user, logout } = useAuth();
   useEffect(() => { const t = setTimeout(() => setMeterFill(74.2), 200); return () => clearTimeout(t); }, []);
+
+  const displayName = user?.name || user?.email?.split('@')[0] || 'You';
+  const displayEmail = user?.email || '';
+  const initials = displayName
+    .split(/[\s.]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || 'U';
 
   return (
     <div style={s.root}>
@@ -32,15 +43,17 @@ export default function Account() {
         <section style={{ ...s.card, animation: 'cardEntry 700ms var(--ease-spring) 300ms both' }}>
           <SectionTitle>Profile</SectionTitle>
           <div style={s.avatarRow}>
-            <div style={s.avatar}><span>EJ</span><span style={s.avatarRing} /></div>
+            <div style={s.avatar}><span>{initials}</span><span style={s.avatarRing} /></div>
             <div>
-              <div style={{ fontSize: 18, fontWeight: 600, color: '#E2E8F0', fontFamily: 'Inter, sans-serif' }}>Elena Jansen</div>
-              <div style={{ fontSize: 13, color: '#94A3B8' }}>elena@blackforge.io</div>
+              <div style={{ fontSize: 18, fontWeight: 600, color: '#E2E8F0', fontFamily: 'Inter, sans-serif' }}>{displayName}</div>
+              <div style={{ fontSize: 13, color: '#94A3B8' }}>{displayEmail}</div>
             </div>
           </div>
-          <div style={s.fieldRow}><Field label="Workspace" value="BlackForge Labs" /><Field label="Role" value="Owner" /></div>
-          <div style={s.fieldRow}><Field label="Joined" value="Jan 15, 2025" /><Field label="Region" value="us-west-2" /></div>
-          <div style={s.actionRow}><Btn>Edit profile</Btn><Btn>Manage API keys</Btn></div>
+          <div style={s.fieldRow}><Field label="Role" value={user?.role ?? 'USER'} /><Field label="User ID" value={user?.id ? user.id.slice(0, 12) : '—'} /></div>
+          <div style={s.actionRow}>
+            <Btn>Manage API keys</Btn>
+            <Btn onClick={() => { logout().catch(() => {/* ignore */}); }}>Sign out</Btn>
+          </div>
         </section>
 
         <section style={{ ...s.card, animation: 'cardEntry 700ms var(--ease-spring) 400ms both' }}>
@@ -123,9 +136,9 @@ function PriBtn({ children }: { children: React.ReactNode }) {
   return <button onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ padding: '10px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: 'white', background: 'linear-gradient(135deg, #7C3AED, #3B82F6)', boxShadow: hover ? '0 0 24px rgba(124,58,237,0.5)' : '0 0 12px rgba(124,58,237,0.25)', transform: hover ? 'scale(1.03)' : 'scale(1)', transition: 'all 200ms cubic-bezier(0.34, 1.56, 0.64, 1)' }}>{children}</button>;
 }
 
-function Btn({ children }: { children: React.ReactNode }) {
+function Btn({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
   const [hover, setHover] = useState(false);
-  return <button onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 500, background: hover ? 'rgba(124,58,237,0.08)' : 'transparent', border: `1px solid ${hover ? 'rgba(124,58,237,0.4)' : 'rgba(26,39,64,0.8)'}`, color: hover ? '#E2E8F0' : '#94A3B8', transition: 'all 200ms ease' }}>{children}</button>;
+  return <button type="button" onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 500, background: hover ? 'rgba(124,58,237,0.08)' : 'transparent', border: `1px solid ${hover ? 'rgba(124,58,237,0.4)' : 'rgba(26,39,64,0.8)'}`, color: hover ? '#E2E8F0' : '#94A3B8', transition: 'all 200ms ease' }}>{children}</button>;
 }
 
 const s: Record<string, React.CSSProperties> = {

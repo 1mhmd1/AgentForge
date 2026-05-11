@@ -17,17 +17,69 @@ Thumbs.db
 
 postgres_data/
 *.db
-
 venv
 .venv
 
+# Python cache
 __pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.tox/
-.coverage
-htmlcov/
+*.pyc
+*.pyo
+*.pyd
+
+# AgentForge runtime outputs
+apps/ai/src/generated_agents/run_*.py
+apps/ai/uploads/*
+!apps/ai/uploads/.gitkeep
+apps/ai/traces/
+apps/ai/__pycache__/
+
+# Backend build + runtime
+apps/backend/dist/
+apps/backend/coverage/
+apps/backend/*.tsbuildinfo
+apps/backend/storage/
+
+# Frontend build + local env
+apps/frontend/dist/
+apps/frontend/.env.local
+apps/frontend/.env.development.local
+apps/frontend/.env.production.local
+
+# Workspace stub — the real packages/shared comes from the frontend branch
+# and will replace this when merged. Do not commit the stub.
+packages/shared/
+
+# Test artifacts + temp
+/tmp/_agf_*
+scripts/_smoke_*.json
+*.smoke.log
+
+# Prisma local state
+apps/backend/prisma/dev.db
+apps/backend/prisma/dev.db-journal
+
+# Editor / OS scratch
+*.swp
+*.swo
+.DS_Store?
+ehthumbs.db
+Desktop.ini
+
+# Cloud / package caches
+.turbo/
+.cache/
+.parcel-cache/
+.npm/
+.yarn/
+
+# Logs
+logs/
+*.log.*
+npm-debug.log*
+yarn-error.log
+pnpm-debug.log
+lerna-debug.log
+
+# IDE
+.history/
+*.code-workspace

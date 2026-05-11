@@ -1,0 +1,1451 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AgentForge — Pipeline Test UI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --bg: #07080d;
+        --bg-card: #0e1018;
+        --bg-input: #13151e;
+        --bg-hover: #1a1d2a;
+        --border: rgba(255, 255, 255, 0.07);
+        --border-glow: rgba(139, 92, 246, 0.4);
+        --accent: #8b5cf6;
+        --accent-dim: rgba(139, 92, 246, 0.15);
+        --accent-bright: #a78bfa;
+        --green: #34d399;
+        --green-dim: rgba(52, 211, 153, 0.15);
+        --red: #f87171;
+        --red-dim: rgba(248, 113, 113, 0.12);
+        --yellow: #fbbf24;
+        --yellow-dim: rgba(251, 191, 36, 0.12);
+        --blue: #60a5fa;
+        --blue-dim: rgba(96, 165, 250, 0.12);
+        --text: #e4e4ef;
+        --text-muted: #6b7280;
+        --text-dim: #9ca3af;
+        --radius: 12px;
+        --radius-sm: 8px;
+        --font: "Inter", sans-serif;
+        --mono: "JetBrains Mono", monospace;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        font-family: var(--font);
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+
+      /* ── Background ── */
+      .bg-glow {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background:
+          radial-gradient(
+            ellipse 60% 40% at 20% 0%,
+            rgba(139, 92, 246, 0.08) 0%,
+            transparent 60%
+          ),
+          radial-gradient(
+            ellipse 40% 30% at 80% 100%,
+            rgba(96, 165, 250, 0.06) 0%,
+            transparent 60%
+          );
+      }
+
+      /* ── Layout ── */
+      .app {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 32px 24px 80px;
+        position: relative;
+        z-index: 1;
+      }
+
+      /* ── Header ── */
+      .header {
+        margin-bottom: 36px;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      .logo-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+      }
+      .logo-name {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: -0.3px;
+      }
+      .logo-badge {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        background: var(--accent-dim);
+        color: var(--accent-bright);
+        border: 1px solid rgba(139, 92, 246, 0.3);
+        border-radius: 20px;
+        padding: 2px 8px;
+      }
+      .header-subtitle {
+        font-size: 13px;
+        color: var(--text-muted);
+      }
+
+      /* ── Input card ── */
+      .input-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 20px;
+        margin-bottom: 24px;
+      }
+      .input-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        margin-bottom: 10px;
+      }
+      .prompt-row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+      textarea {
+        flex: 1;
+        background: var(--bg-input);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        color: var(--text);
+        font-family: var(--font);
+        font-size: 14px;
+        line-height: 1.6;
+        padding: 12px 14px;
+        resize: none;
+        min-height: 80px;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      textarea:focus {
+        border-color: var(--border-glow);
+      }
+      textarea::placeholder {
+        color: var(--text-muted);
+      }
+
+      .right-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 130px;
+      }
+
+      select {
+        background: var(--bg-input);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        color: var(--text);
+        font-family: var(--font);
+        font-size: 12px;
+        padding: 8px 10px;
+        outline: none;
+        cursor: pointer;
+      }
+
+      .run-btn {
+        background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+        border: none;
+        border-radius: var(--radius-sm);
+        color: #fff;
+        font-family: var(--font);
+        font-size: 13px;
+        font-weight: 600;
+        padding: 10px 16px;
+        cursor: pointer;
+        transition:
+          opacity 0.2s,
+          transform 0.1s,
+          box-shadow 0.2s;
+        box-shadow: 0 4px 16px rgba(139, 92, 246, 0.3);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        justify-content: center;
+      }
+      .run-btn:hover:not(:disabled) {
+        opacity: 0.9;
+        box-shadow: 0 6px 24px rgba(139, 92, 246, 0.4);
+      }
+      .run-btn:active:not(:disabled) {
+        transform: scale(0.98);
+      }
+      .run-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .examples {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 12px;
+      }
+      .example-chip {
+        font-size: 11px;
+        color: var(--text-muted);
+        background: var(--bg-input);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 4px 10px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .example-chip:hover {
+        color: var(--accent-bright);
+        border-color: rgba(139, 92, 246, 0.3);
+        background: var(--accent-dim);
+      }
+
+      /* ── Status bar ── */
+      .status-bar {
+        display: none;
+        align-items: center;
+        gap: 10px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 10px 14px;
+        margin-bottom: 20px;
+        font-size: 13px;
+      }
+      .status-bar.visible {
+        display: flex;
+      }
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        flex-shrink: 0;
+        animation: pulse 1s ease-in-out infinite;
+      }
+      .status-bar.done .status-dot {
+        animation: none;
+        background: var(--green);
+      }
+      .status-bar.error .status-dot {
+        animation: none;
+        background: var(--red);
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.3;
+        }
+      }
+
+      /* ── Pipeline stages ── */
+      .pipeline-section {
+        margin-bottom: 24px;
+        display: none;
+      }
+      .pipeline-section.visible {
+        display: block;
+      }
+      .section-title {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        margin-bottom: 12px;
+      }
+
+      .stages-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .stage-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 14px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        transition:
+          border-color 0.2s,
+          background 0.2s;
+      }
+      .stage-row.running {
+        border-color: rgba(139, 92, 246, 0.4);
+        background: rgba(139, 92, 246, 0.05);
+      }
+      .stage-row.success {
+        border-color: rgba(52, 211, 153, 0.25);
+        background: rgba(52, 211, 153, 0.04);
+      }
+      .stage-row.failed {
+        border-color: rgba(248, 113, 113, 0.3);
+        background: rgba(248, 113, 113, 0.05);
+      }
+      .stage-row.skipped {
+        opacity: 0.35;
+      }
+
+      .stage-icon {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+      }
+      .stage-icon.pending {
+        background: rgba(107, 114, 128, 0.2);
+      }
+      .stage-icon.running {
+        background: var(--accent-dim);
+        animation: pulse 1s ease-in-out infinite;
+      }
+      .stage-icon.success {
+        background: var(--green-dim);
+      }
+      .stage-icon.failed {
+        background: var(--red-dim);
+      }
+      .stage-icon.skipped {
+        background: rgba(107, 114, 128, 0.15);
+      }
+
+      .stage-name {
+        font-size: 13px;
+        font-weight: 500;
+        flex: 1;
+      }
+      .stage-status-tag {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 2px 7px;
+        border-radius: 10px;
+      }
+      .tag-pending {
+        background: rgba(107, 114, 128, 0.15);
+        color: var(--text-muted);
+      }
+      .tag-running {
+        background: var(--accent-dim);
+        color: var(--accent-bright);
+      }
+      .tag-success {
+        background: var(--green-dim);
+        color: var(--green);
+      }
+      .tag-failed {
+        background: var(--red-dim);
+        color: var(--red);
+      }
+      .tag-skipped {
+        background: rgba(107, 114, 128, 0.1);
+        color: #4b5563;
+      }
+
+      /* ── Spec card ── */
+      .spec-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 18px;
+        margin-bottom: 20px;
+        display: none;
+      }
+      .spec-card.visible {
+        display: block;
+      }
+      .spec-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 12px;
+      }
+      .spec-field {
+      }
+      .spec-field-label {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--text-muted);
+        margin-bottom: 4px;
+      }
+      .spec-field-value {
+        font-size: 13px;
+        color: var(--text);
+      }
+      .spec-tag {
+        display: inline-block;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 10px;
+        margin: 2px 2px 2px 0;
+        background: var(--accent-dim);
+        color: var(--accent-bright);
+        border: 1px solid rgba(139, 92, 246, 0.2);
+      }
+      .domain-badge {
+        display: inline-block;
+        font-size: 11px;
+        padding: 3px 10px;
+        border-radius: 10px;
+        background: var(--blue-dim);
+        color: var(--blue);
+        border: 1px solid rgba(96, 165, 250, 0.2);
+        font-weight: 600;
+      }
+      .complexity-badge {
+        display: inline-block;
+        font-size: 11px;
+        padding: 3px 10px;
+        border-radius: 10px;
+        background: var(--yellow-dim);
+        color: var(--yellow);
+        border: 1px solid rgba(251, 191, 36, 0.2);
+        font-weight: 600;
+      }
+
+      .spec-steps {
+        margin-top: 12px;
+      }
+      .step-item {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        margin-bottom: 6px;
+      }
+      .step-num {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: var(--accent-dim);
+        color: var(--accent-bright);
+        font-size: 10px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+      .step-text {
+        font-size: 13px;
+        color: var(--text-dim);
+        line-height: 1.4;
+      }
+
+      /* ── Result card ── */
+      .result-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 18px;
+        display: none;
+      }
+      .result-card.visible {
+        display: block;
+      }
+      .result-card.success-card {
+        border-color: rgba(52, 211, 153, 0.2);
+      }
+      .result-card.error-card {
+        border-color: rgba(248, 113, 113, 0.2);
+      }
+
+      .result-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .result-status-icon {
+        font-size: 20px;
+      }
+      .result-title {
+        font-size: 16px;
+        font-weight: 700;
+      }
+      .result-meta {
+        margin-left: auto;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .sub-agents {
+        margin-bottom: 16px;
+      }
+      .sub-agent-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .sub-agent-row:last-child {
+        border-bottom: none;
+      }
+      .sub-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .sub-ok {
+        background: var(--green);
+      }
+      .sub-fail {
+        background: var(--red);
+      }
+      .sub-label {
+        font-size: 12px;
+        color: var(--text-dim);
+        flex: 1;
+      }
+      .sub-count {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-family: var(--mono);
+      }
+
+      .code-block {
+        background: #0a0b10;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 14px;
+        font-family: var(--mono);
+        font-size: 12px;
+        line-height: 1.7;
+        color: #c9d1d9;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        max-height: 420px;
+        overflow-y: auto;
+      }
+      .code-block::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      .code-block::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .code-block::-webkit-scrollbar-thumb {
+        background: #2d3148;
+        border-radius: 4px;
+      }
+
+      .code-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+      .code-title {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--text-muted);
+      }
+      .copy-btn {
+        font-size: 11px;
+        color: var(--text-muted);
+        background: var(--bg-input);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 3px 10px;
+        cursor: pointer;
+        transition: all 0.15s;
+        font-family: var(--font);
+      }
+      .copy-btn:hover {
+        color: var(--text);
+        border-color: rgba(255, 255, 255, 0.15);
+      }
+
+      .error-details {
+        background: var(--red-dim);
+        border: 1px solid rgba(248, 113, 113, 0.2);
+        border-radius: var(--radius-sm);
+        padding: 12px;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--red);
+      }
+
+      .stats-row {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+      }
+      .stat {
+      }
+      .stat-val {
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--green);
+      }
+      .stat-key {
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      /* ── Result Preview ── */
+      .result-preview {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        margin-top: 20px;
+        display: none;
+        overflow: hidden;
+      }
+      .result-preview.visible {
+        display: block;
+      }
+      .preview-tabs {
+        display: flex;
+        border-bottom: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.2);
+      }
+      .preview-tab {
+        padding: 10px 18px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-muted);
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+        font-family: var(--font);
+        background: none;
+        border-top: none;
+        border-left: none;
+        border-right: none;
+      }
+      .preview-tab:hover {
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .preview-tab.active {
+        color: var(--accent-bright);
+        border-bottom-color: var(--accent);
+        background: rgba(139, 92, 246, 0.05);
+      }
+      .preview-body {
+        padding: 0;
+      }
+      .preview-pane {
+        display: none;
+      }
+      .preview-pane.active {
+        display: block;
+      }
+      .preview-iframe {
+        width: 100%;
+        min-height: 500px;
+        border: none;
+        background: #fff;
+        border-radius: 0 0 var(--radius) var(--radius);
+      }
+      .preview-text {
+        padding: 20px;
+        font-size: 14px;
+        line-height: 1.8;
+        color: var(--text);
+        white-space: pre-wrap;
+        max-height: 600px;
+        overflow-y: auto;
+      }
+      .preview-text h1,
+      .preview-text h2,
+      .preview-text h3 {
+        color: var(--accent-bright);
+        margin: 16px 0 8px;
+      }
+      .preview-text strong {
+        color: var(--green);
+      }
+      .preview-json {
+        padding: 16px;
+        font-family: var(--mono);
+        font-size: 12px;
+        line-height: 1.7;
+        color: #c9d1d9;
+        white-space: pre-wrap;
+        max-height: 600px;
+        overflow-y: auto;
+        background: #0a0b10;
+      }
+      .preview-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 18px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--text-muted);
+        border-bottom: 1px solid var(--border);
+      }
+      .preview-label .domain-icon {
+        font-size: 16px;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .fade-in {
+        animation: fadeIn 0.3s ease both;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bg-glow"></div>
+    <div class="app">
+      <!-- Header -->
+      <div class="header">
+        <div class="logo">
+          <div class="logo-icon">⚡</div>
+          <span class="logo-name">AgentForge</span>
+          <span class="logo-badge">Pipeline UI</span>
+        </div>
+        <div class="header-subtitle">
+          Planner → Builder · Validator coming next phase
+        </div>
+      </div>
+
+      <!-- Input -->
+      <div class="input-card">
+        <div class="input-label">Prompt</div>
+        <div class="prompt-row">
+          <textarea
+            id="prompt"
+            placeholder="Describe what you want to build or research…"
+            rows="3"
+          ></textarea>
+          <div class="right-controls">
+            <select id="domain-select">
+              <option value="">Auto-detect domain</option>
+              <option value="website_builder">website_builder</option>
+              <option value="data_transform">data_transform</option>
+              <option value="web_research">web_research</option>
+              <option value="document">document</option>
+            </select>
+            <button class="run-btn" id="run-btn" onclick="runPipeline()">
+              <span id="btn-icon">▶</span>
+              <span id="btn-label">Run Pipeline</span>
+            </button>
+          </div>
+        </div>
+        <div
+          id="upload-zone"
+          style="
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          "
+        >
+          <label
+            style="
+              font-size: 11px;
+              color: var(--text-muted);
+              background: var(--bg-input);
+              border: 1px dashed var(--border);
+              border-radius: 8px;
+              padding: 6px 14px;
+              cursor: pointer;
+              transition: all 0.15s;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+            "
+            onmouseover="this.style.borderColor = 'rgba(139,92,246,0.4)'"
+            onmouseout="this.style.borderColor = 'var(--border)'"
+          >
+            📎 <span>Attach File</span>
+            <input
+              type="file"
+              id="file-input"
+              accept=".csv,.json,.txt,.md,.xml,.html,.css,.js,.py"
+              style="display: none"
+              onchange="handleFileUpload(this)"
+            />
+          </label>
+          <span
+            id="file-status"
+            style="font-size: 11px; color: var(--text-muted)"
+          ></span>
+        </div>
+        <div class="examples">
+          <span
+            class="example-chip"
+            onclick="
+              setPrompt(
+                'Build a landing page for a coffee shop with hero, menu, and contact form',
+              )
+            "
+            >☕ Coffee shop landing page</span
+          >
+          <span
+            class="example-chip"
+            onclick="
+              setPrompt(
+                'Convert a CSV file of employee records into JSON format with validation',
+              )
+            "
+            >📊 CSV to JSON</span
+          >
+          <span
+            class="example-chip"
+            onclick="
+              setPrompt(
+                'Research the latest trends in AI for 2026 and summarize the top 5',
+              )
+            "
+            >🔍 AI trends research</span
+          >
+          <span
+            class="example-chip"
+            onclick="
+              setPrompt(
+                'Generate a technical report about cloud architecture best practices',
+              )
+            "
+            >📄 Cloud architecture report</span
+          >
+        </div>
+      </div>
+
+      <!-- Status bar -->
+      <div class="status-bar" id="status-bar">
+        <div class="status-dot"></div>
+        <span id="status-text">Starting pipeline…</span>
+      </div>
+
+      <!-- Spec Card -->
+      <div class="spec-card fade-in" id="spec-card">
+        <div class="section-title">Planner Output — Agent Spec</div>
+        <div class="spec-grid">
+          <div class="spec-field">
+            <div class="spec-field-label">Goal</div>
+            <div class="spec-field-value" id="spec-goal">—</div>
+          </div>
+          <div class="spec-field">
+            <div class="spec-field-label">Domain</div>
+            <div class="spec-field-value" id="spec-domain">—</div>
+          </div>
+          <div class="spec-field">
+            <div class="spec-field-label">Complexity</div>
+            <div class="spec-field-value" id="spec-complexity">—</div>
+          </div>
+          <div class="spec-field">
+            <div class="spec-field-label">Tools</div>
+            <div class="spec-field-value" id="spec-tools">—</div>
+          </div>
+        </div>
+        <div class="spec-field" style="margin-top: 12px">
+          <div class="spec-field-label">Success Criteria</div>
+          <div
+            class="spec-field-value"
+            id="spec-criteria"
+            style="color: var(--text-dim); font-size: 13px"
+          >
+            —
+          </div>
+        </div>
+        <div class="spec-steps">
+          <div class="spec-field-label" style="margin-bottom: 8px">Steps</div>
+          <div id="spec-steps-list"></div>
+        </div>
+      </div>
+
+      <!-- Pipeline Stages -->
+      <div class="pipeline-section" id="pipeline-section">
+        <div class="section-title">Builder Pipeline</div>
+        <div class="stages-grid" id="stages-grid"></div>
+      </div>
+
+      <!-- Result -->
+      <div class="result-card fade-in" id="result-card"></div>
+
+      <!-- Result Preview -->
+      <div class="result-preview fade-in" id="result-preview">
+        <div class="preview-label">
+          <span class="domain-icon" id="preview-domain-icon">📄</span>
+          <span id="preview-domain-label">Result Preview</span>
+        </div>
+        <div class="preview-tabs" id="preview-tabs"></div>
+        <div class="preview-body" id="preview-body"></div>
+      </div>
+    </div>
+
+    <script>
+      const API = "http://localhost:4000";
+
+      const STAGE_META = {
+        PLANNER: { label: "Planner (LLM)", icon: "🧠" },
+        VALIDATION: { label: "Spec Validation", icon: "✔" },
+        EXECUTION_PLANNING: { label: "Execution Planning", icon: "📋" },
+        TEMPLATE_LOADING: { label: "Template Loading", icon: "📂" },
+        TEMPLATE_RENDERING: { label: "Template Rendering", icon: "🔧" },
+        CODE_INJECTION: { label: "Code Injection", icon: "💉" },
+        QUALITY_VALIDATION: { label: "Quality Check", icon: "📊" },
+        SYNTAX_VALIDATION: { label: "Syntax Validation", icon: "🔍" },
+        FILE_WRITING: { label: "File Writing", icon: "💾" },
+      };
+
+      let running = false;
+      let uploadedFileContent = "";
+
+      async function handleFileUpload(input) {
+        const file = input.files[0];
+        if (!file) return;
+
+        const statusEl = document.getElementById("file-status");
+        statusEl.textContent = `Uploading ${file.name}...`;
+        statusEl.style.color = "var(--accent-bright)";
+
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+
+          const resp = await fetch(API + "/upload", {
+            method: "POST",
+            body: formData,
+          });
+          const data = await resp.json();
+
+          uploadedFileContent = data.content || "";
+          statusEl.textContent = `✓ ${data.filename} (${(data.size / 1024).toFixed(1)}KB)`;
+          statusEl.style.color = "var(--green)";
+
+          // Auto-append to prompt
+          const promptEl = document.getElementById("prompt");
+          const currentPrompt = promptEl.value.trim();
+          if (currentPrompt && !currentPrompt.includes("[FILE CONTENT]")) {
+            promptEl.value =
+              currentPrompt +
+              "\n\n[FILE CONTENT]\n" +
+              uploadedFileContent.substring(0, 2000);
+          } else if (!currentPrompt) {
+            promptEl.value =
+              "Process this file:\n\n[FILE CONTENT]\n" +
+              uploadedFileContent.substring(0, 2000);
+          }
+        } catch (err) {
+          statusEl.textContent = `✕ Upload failed: ${err.message}`;
+          statusEl.style.color = "var(--red)";
+        }
+      }
+
+      function setPrompt(text) {
+        document.getElementById("prompt").value = text;
+        document.getElementById("prompt").focus();
+      }
+
+      function setStatus(text, cls = "") {
+        const bar = document.getElementById("status-bar");
+        bar.className = "status-bar visible" + (cls ? " " + cls : "");
+        document.getElementById("status-text").textContent = text;
+      }
+
+      function renderStage(stage, status, extra = {}) {
+        const meta = STAGE_META[stage] || { label: stage, icon: "⬡" };
+        const statusLabels = {
+          pending: "•••",
+          running: "Running",
+          success: "Done",
+          failed: "Failed",
+          skipped: "Skipped",
+        };
+        const row =
+          document.getElementById("stage-row-" + stage) ||
+          createStageRow(stage, meta);
+
+        row.className = "stage-row " + status;
+        row.querySelector(".stage-icon").className = "stage-icon " + status;
+        row.querySelector(".stage-icon").textContent =
+          status === "success"
+            ? "✓"
+            : status === "failed"
+              ? "✕"
+              : status === "running"
+                ? "↻"
+                : meta.icon;
+        row.querySelector(".stage-status-tag").className =
+          "stage-status-tag tag-" + status;
+        row.querySelector(".stage-status-tag").textContent =
+          statusLabels[status] || status;
+      }
+
+      function createStageRow(stage, meta) {
+        const grid = document.getElementById("stages-grid");
+        const row = document.createElement("div");
+        row.className = "stage-row pending";
+        row.id = "stage-row-" + stage;
+        row.innerHTML = `
+    <div class="stage-icon pending">${meta.icon}</div>
+    <span class="stage-name">${meta.label}</span>
+    <span class="stage-status-tag tag-pending">•••</span>
+  `;
+        grid.appendChild(row);
+        return row;
+      }
+
+      function renderSpec(spec) {
+        const card = document.getElementById("spec-card");
+        card.classList.add("visible");
+
+        document.getElementById("spec-goal").textContent = spec.goal || "—";
+
+        const domEl = document.getElementById("spec-domain");
+        domEl.innerHTML = `<span class="domain-badge">${spec.domain || "—"}</span>`;
+
+        const compEl = document.getElementById("spec-complexity");
+        compEl.innerHTML = `<span class="complexity-badge">${spec.complexity || "—"}</span>`;
+
+        const toolsEl = document.getElementById("spec-tools");
+        toolsEl.innerHTML =
+          (spec.tools || [])
+            .map((t) => `<span class="spec-tag">${t}</span>`)
+            .join("") || "—";
+
+        document.getElementById("spec-criteria").textContent =
+          spec.success_criteria || "—";
+
+        const stepsList = document.getElementById("spec-steps-list");
+        stepsList.innerHTML = (spec.steps || [])
+          .map(
+            (s, i) => `
+    <div class="step-item">
+      <div class="step-num">${i + 1}</div>
+      <div class="step-text">${s}</div>
+    </div>
+  `,
+          )
+          .join("");
+      }
+
+      function renderSuccess(data) {
+        const card = document.getElementById("result-card");
+        card.className = "result-card visible success-card fade-in";
+        const sub = data.sub_agent_summary || [];
+        const subHtml = sub
+          .map(
+            (s) => `
+    <div class="sub-agent-row">
+      <div class="sub-dot ${s.status === "success" || s.status === "ok" ? "sub-ok" : "sub-fail"}"></div>
+      <span class="sub-label">${s.step_id}${s.summary ? " — " + s.summary : ""}</span>
+      <span class="sub-count">${s.code_length} chars</span>
+    </div>
+  `,
+          )
+          .join("");
+
+        const q = data.quality_score || {};
+        const qColor = (v) =>
+          v >= 0.7 ? "var(--green)" : v >= 0.4 ? "var(--yellow)" : "var(--red)";
+        const qBool = (v) => (v ? "⚠️" : "✅");
+
+        const audit = data.run_audit || {};
+        const providers =
+          Object.entries(audit.provider_usage || {})
+            .map(([k, v]) => `${k}×${v}`)
+            .join(", ") || "—";
+
+        card.innerHTML = `
+    <div class="result-header">
+      <span class="result-status-icon">✅</span>
+      <span class="result-title">Pipeline Completed</span>
+      <span class="result-meta">⏱ ${data.build_duration?.toFixed(2) ?? "?"}s · ${data.code_length ?? 0} chars</span>
+    </div>
+    <div class="stats-row">
+      <div class="stat"><div class="stat-val">${sub.length}</div><div class="stat-key">Sub-agents</div></div>
+      <div class="stat"><div class="stat-val">${data.code_length ?? 0}</div><div class="stat-key">Code chars</div></div>
+      <div class="stat"><div class="stat-val" style="color:var(--accent-bright)">${data.build_duration?.toFixed(2) ?? "?"}s</div><div class="stat-key">Build time</div></div>
+      <div class="stat"><div class="stat-val" style="color:${qColor(q.implementation_quality ?? 0)}">${q.implementation_quality ?? "?"}</div><div class="stat-key">Quality</div></div>
+      <div class="stat"><div class="stat-val">${qBool(q.has_placeholders)}</div><div class="stat-key">Placeholders</div></div>
+      <div class="stat"><div class="stat-val" style="font-size:12px;color:var(--blue)">${providers}</div><div class="stat-key">Providers</div></div>
+    </div>
+    ${sub.length ? `<div class="sub-agents">${subHtml}</div>` : ""}
+    ${data.output_path ? `<div style="font-size:11px;color:var(--text-muted)">📁 Saved: ${data.output_path}</div>` : ""}
+  `;
+      }
+
+      function renderFailure(data) {
+        const card = document.getElementById("result-card");
+        card.className = "result-card visible error-card fade-in";
+        const details = data.details
+          ? JSON.stringify(data.details, null, 2)
+          : "";
+        card.innerHTML = `
+    <div class="result-header">
+      <span class="result-status-icon">❌</span>
+      <span class="result-title">Pipeline Failed</span>
+    </div>
+    <div style="margin-bottom:10px">
+      <span style="background:rgba(248,113,113,0.1);color:#f87171;border:1px solid rgba(248,113,113,0.25);border-radius:8px;padding:3px 10px;font-size:12px;font-weight:600">
+        ${data.error_stage || "UNKNOWN"}
+      </span>
+    </div>
+    <div class="error-details">${escHtml(data.final_error || "unknown error")}${details ? "\n\n" + details : ""}</div>
+  `;
+      }
+
+      function copyCode() {
+        const el = document.getElementById("code-output");
+        if (el) navigator.clipboard.writeText(el.textContent);
+        const btn = document.querySelector(".copy-btn");
+        if (btn) {
+          btn.textContent = "Copied!";
+          setTimeout(() => (btn.textContent = "Copy"), 2000);
+        }
+      }
+
+      function escHtml(s) {
+        return s
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      function reset() {
+        document.getElementById("spec-card").className = "spec-card";
+        document.getElementById("pipeline-section").className =
+          "pipeline-section";
+        document.getElementById("result-card").className = "result-card";
+        document.getElementById("result-preview").className = "result-preview";
+        document.getElementById("stages-grid").innerHTML = "";
+        document.getElementById("spec-steps-list").innerHTML = "";
+        document.getElementById("preview-tabs").innerHTML = "";
+        document.getElementById("preview-body").innerHTML = "";
+      }
+
+      async function runPipeline() {
+        if (running) return;
+        const prompt = document.getElementById("prompt").value.trim();
+        if (!prompt) {
+          document.getElementById("prompt").focus();
+          return;
+        }
+        const domain = document.getElementById("domain-select").value || null;
+
+        running = true;
+        document.getElementById("run-btn").disabled = true;
+        document.getElementById("btn-icon").textContent = "⏳";
+        document.getElementById("btn-label").textContent = "Running…";
+
+        reset();
+
+        const pipelineSection = document.getElementById("pipeline-section");
+        pipelineSection.className = "pipeline-section visible";
+        setStatus("Starting pipeline…");
+
+        // Create planner row first
+        createStageRow("PLANNER", STAGE_META["PLANNER"]);
+        renderStage("PLANNER", "running");
+
+        let eventSource;
+        try {
+          const resp = await fetch(API + "/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt, domain }),
+          });
+
+          if (!resp.ok || !resp.body)
+            throw new Error("Server error: " + resp.status);
+
+          const reader = resp.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split("\n");
+            buf = lines.pop();
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              let msg;
+              try {
+                msg = JSON.parse(line.slice(6));
+              } catch {
+                continue;
+              }
+              handleEvent(msg);
+            }
+          }
+        } catch (err) {
+          setStatus("Connection error: " + err.message, "error");
+          renderFailure({
+            final_error: err.message,
+            error_stage: "CONNECTION",
+          });
+        }
+
+        running = false;
+        document.getElementById("run-btn").disabled = false;
+        document.getElementById("btn-icon").textContent = "▶";
+        document.getElementById("btn-label").textContent = "Run Pipeline";
+      }
+
+      function renderResultPreview(data) {
+        const preview = document.getElementById("result-preview");
+        const tabsEl = document.getElementById("preview-tabs");
+        const bodyEl = document.getElementById("preview-body");
+        const domain = data.domain || "";
+        const results = data.sub_agent_results || {};
+
+        // Collect all generated content from sub-agents
+        const parts = [];
+        Object.keys(results)
+          .sort()
+          .forEach((key) => {
+            const r = results[key];
+            const code = (r.generated_code || "").trim();
+            if (code) parts.push(code);
+          });
+        const content = parts.join("\n\n");
+        if (!content && !data.code) return;
+
+        // Domain config
+        const domainConfig = {
+          website_builder: {
+            icon: "🌐",
+            label: "Website Preview",
+            resultTab: "Preview",
+          },
+          web_research: {
+            icon: "🔍",
+            label: "Research Results",
+            resultTab: "Research",
+          },
+          document: {
+            icon: "📄",
+            label: "Document Output",
+            resultTab: "Document",
+          },
+          data_transform: {
+            icon: "📊",
+            label: "Data Output",
+            resultTab: "Data",
+          },
+        };
+        const cfg = domainConfig[domain] || {
+          icon: "📋",
+          label: "Result",
+          resultTab: "Result",
+        };
+
+        document.getElementById("preview-domain-icon").textContent = cfg.icon;
+        document.getElementById("preview-domain-label").textContent = cfg.label;
+
+        // Build tabs
+        const tabs = [
+          { id: "result", label: cfg.resultTab },
+          { id: "code", label: "Generated Agent" },
+        ];
+        tabsEl.innerHTML = tabs
+          .map(
+            (t, i) =>
+              `<button class="preview-tab${i === 0 ? " active" : ""}" data-tab="${t.id}" onclick="switchPreviewTab('${t.id}')">${t.label}</button>`,
+          )
+          .join("");
+
+        // Build panes
+        let resultPane = "";
+
+        if (domain === "website_builder") {
+          // Build full HTML from sub-agent content
+          const htmlContent = buildWebsitePreview(content);
+          resultPane = `<div class="preview-pane active" id="pane-result">
+      <iframe class="preview-iframe" id="preview-iframe" sandbox="allow-scripts"></iframe>
+    </div>`;
+          // We'll inject into iframe after DOM update
+          setTimeout(() => {
+            const iframe = document.getElementById("preview-iframe");
+            if (iframe) {
+              iframe.srcdoc = htmlContent;
+            }
+          }, 50);
+        } else if (domain === "web_research" || domain === "document") {
+          const rendered = simpleMarkdown(content);
+          resultPane = `<div class="preview-pane active" id="pane-result">
+      <div class="preview-text">${rendered}</div>
+    </div>`;
+        } else if (domain === "data_transform") {
+          let formatted = content;
+          try {
+            formatted = JSON.stringify(JSON.parse(content), null, 2);
+          } catch {}
+          resultPane = `<div class="preview-pane active" id="pane-result">
+      <div class="preview-json">${escHtml(formatted)}</div>
+    </div>`;
+        } else {
+          resultPane = `<div class="preview-pane active" id="pane-result">
+      <div class="preview-text">${escHtml(content)}</div>
+    </div>`;
+        }
+
+        const codePane = `<div class="preview-pane" id="pane-code">
+    <div class="code-header" style="padding:14px 18px 0">
+      <span class="code-title">Generated Agent Code</span>
+      <button class="copy-btn" onclick="copyCode()">Copy</button>
+    </div>
+    <div class="code-block" id="code-output" style="margin:8px 18px 18px;border-radius:8px">${escHtml(data.code || "")}</div>
+  </div>`;
+
+        bodyEl.innerHTML = resultPane + codePane;
+        preview.className = "result-preview visible fade-in";
+      }
+
+      function switchPreviewTab(tabId) {
+        document.querySelectorAll(".preview-tab").forEach((t) => {
+          t.classList.toggle("active", t.dataset.tab === tabId);
+        });
+        document.querySelectorAll(".preview-pane").forEach((p) => {
+          p.classList.toggle("active", p.id === "pane-" + tabId);
+        });
+      }
+
+      function buildWebsitePreview(content) {
+        // Try to detect if content is already a full HTML doc
+        if (content.includes("<!DOCTYPE") || content.includes("<html"))
+          return content;
+
+        // Otherwise wrap it
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #333; }
+  </style>
+</head>
+<body>
+${content}
+</body>
+</html>`;
+      }
+
+      function simpleMarkdown(text) {
+        let html = escHtml(text);
+        // Headers
+        html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
+        html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
+        html = html.replace(/^# (.+)$/gm, "<h1>$1</h1>");
+        // Bold
+        html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+        // Italic
+        html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+        // Lists
+        html = html.replace(/^- (.+)$/gm, "• $1");
+        html = html.replace(/^\d+\. (.+)$/gm, (m, p1, offset) => {
+          const num = m.match(/^(\d+)/)[1];
+          return `<strong>${num}.</strong> ${p1}`;
+        });
+        // Line breaks
+        html = html.replace(/\n\n/g, "<br><br>");
+        html = html.replace(/\n/g, "<br>");
+        return html;
+      }
+
+      function handleEvent(msg) {
+        const ev = msg.event;
+
+        if (ev === "started") {
+          const mcp = msg.mcp_enabled ? " · docs MCP" : "";
+          setStatus(`Run ${msg.run_id}${mcp} — planning…`);
+        } else if (ev === "stage") {
+          const s = msg.stage;
+          renderStage(s, msg.status);
+          if (msg.status === "running")
+            setStatus(`${STAGE_META[s]?.label || s}…`);
+          if (msg.status === "success" && s === "PLANNER")
+            setStatus("Spec ready — building…");
+          if (msg.spec) renderSpec(msg.spec);
+        } else if (ev === "spec") {
+          renderSpec(msg.spec);
+        } else if (ev === "success") {
+          setStatus("Pipeline completed ✓", "done");
+          renderSuccess(msg);
+          renderResultPreview(msg);
+        } else if (ev === "failed") {
+          setStatus("Pipeline failed — " + (msg.error_stage || "?"), "error");
+          renderFailure(msg);
+        }
+      }
+
+      document.getElementById("prompt").addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) runPipeline();
+      });
+    </script>
+  </body>
+</html>
