@@ -70,6 +70,16 @@ def validator_node(state: dict) -> dict:
         template_saved, run_saved = _persist_to_qdrant(next_state)
         next_state["template_saved"] = template_saved
         next_state["run_saved"] = run_saved
+        # Successful run -> the checkpoint (if any) is now redundant. Delete
+        # it so the `checkpoints` collection stays small. Best-effort -- a
+        # delete failure must not flip the run back to interrupted.
+        try:
+            from services import checkpoint_store as _cp
+            run_id = next_state.get("run_id") or ""
+            if run_id:
+                _cp.delete_checkpoint(run_id)
+        except Exception:
+            pass
     else:
         repair_attempts = int(next_state.get("repair_attempts") or 0)
         if repair_attempts < 3:

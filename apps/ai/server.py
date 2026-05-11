@@ -71,111 +71,178 @@ PIPELINE_STAGES = [
 class RunRequest(BaseModel):
     prompt: str
     domain: str | None = None
+    # When set: load the checkpoint for this run_id from Qdrant and resume
+    # from the failed step instead of starting over. The frontend gets this
+    # value from a previously-emitted `interrupted` event.
+    resume_run_id: str | None = None
 
 
 def emit(event: str, data: dict) -> str:
     return f"data: {json.dumps({'event': event, **data})}\n\n"
 
 
-def stream_pipeline(prompt: str, domain: str | None):
-    run_id = f"ui_{uuid.uuid4().hex[:8]}"
+def stream_pipeline(prompt: str, domain: str | None, resume_run_id: str | None = None):
+    # Resume path: if the caller passed resume_run_id, try to load that
+    # run's checkpoint and continue from where it stopped. Falls back to a
+    # fresh run silently when Qdrant is unreachable or no checkpoint exists.
+    resumed_state = None
+    if resume_run_id:
+        try:
+            from services import checkpoint_store as _cp
+            resumed_state = _cp.load_checkpoint(resume_run_id)
+        except Exception as exc:
+            resumed_state = None
+            yield emit("log", {"level": "warn", "msg": f"checkpoint load failed: {exc}"})
 
-    yield emit("started", {"run_id": run_id, "prompt": prompt, "mcp_enabled": mcp_is_enabled()})
-
-    state = initial_state(run_id=run_id, user_prompt=prompt)
-    if domain:
-        state["domain"] = domain
+    if resumed_state:
+        run_id = resume_run_id  # reuse the original run_id so the checkpoint stays addressable
+        yield emit("started", {
+            "run_id": run_id,
+            "prompt": prompt,
+            "mcp_enabled": mcp_is_enabled(),
+            "resumed": True,
+            "resumed_from_step": resumed_state.get("failed_step"),
+            "completed_steps": resumed_state.get("completed_steps") or [],
+        })
+        # Hydrate a fresh initial_state, then overlay every checkpointed key.
+        state = initial_state(run_id=run_id, user_prompt=prompt)
+        for k, v in resumed_state.items():
+            if v is not None:
+                state[k] = v
+        state["resume_run_id"] = resume_run_id
+        # If the planner already ran and a spec exists, signal the optimizer +
+        # planner stages as skipped (their work is in the checkpoint).
+        if state.get("spec"):
+            state["status"] = "running"
+    else:
+        run_id = f"ui_{uuid.uuid4().hex[:8]}"
+        yield emit("started", {
+            "run_id": run_id,
+            "prompt": prompt,
+            "mcp_enabled": mcp_is_enabled(),
+            "resumed": False,
+        })
+        state = initial_state(run_id=run_id, user_prompt=prompt)
+        if domain:
+            state["domain"] = domain
 
     # ── Prompt Optimizer ───────────────────────────────────────────────
-    yield emit("stage", {"stage": "PROMPT_OPTIMIZER", "status": "running", "label": "Optimizing prompt..."})
-    t_opt = time.time()
-    try:
-        state = prompt_optimizer_node(state)
-        opt_time = round(time.time() - t_opt, 2)
-    except Exception as exc:
-        # Optimizer failures are non-fatal -- fall back to raw prompt.
-        opt_time = round(time.time() - t_opt, 2)
-        yield emit("stage", {
-            "stage": "PROMPT_OPTIMIZER", "status": "skipped",
-            "error": str(exc), "duration": opt_time,
-        })
-    else:
-        analysis = state.get("prompt_analysis") or {}
+    # On resume: the optimizer already ran in the prior invocation; we have
+    # its output on state. Skip the LLM call to save tokens / latency.
+    if resumed_state and state.get("optimized_prompt"):
         yield emit("stage", {
             "stage": "PROMPT_OPTIMIZER",
-            "status": "success",
-            "duration": opt_time,
+            "status": "skipped",
+            "label": "Skipped (resumed from checkpoint)",
             "optimized_prompt": state.get("optimized_prompt"),
-            "detected_domain": analysis.get("detected_domain"),
-            "complexity": analysis.get("complexity"),
-            "detected_requirements": analysis.get("detected_requirements", []),
         })
+    else:
+        yield emit("stage", {"stage": "PROMPT_OPTIMIZER", "status": "running", "label": "Optimizing prompt..."})
+        t_opt = time.time()
+        try:
+            state = prompt_optimizer_node(state)
+            opt_time = round(time.time() - t_opt, 2)
+        except Exception as exc:
+            opt_time = round(time.time() - t_opt, 2)
+            yield emit("stage", {
+                "stage": "PROMPT_OPTIMIZER", "status": "skipped",
+                "error": str(exc), "duration": opt_time,
+            })
+        else:
+            analysis = state.get("prompt_analysis") or {}
+            yield emit("stage", {
+                "stage": "PROMPT_OPTIMIZER",
+                "status": "success",
+                "duration": opt_time,
+                "optimized_prompt": state.get("optimized_prompt"),
+                "detected_domain": analysis.get("detected_domain"),
+                "complexity": analysis.get("complexity"),
+                "detected_requirements": analysis.get("detected_requirements", []),
+            })
 
     # ── Planner ────────────────────────────────────────────────────────
-    yield emit("stage", {"stage": "PLANNER", "status": "running", "label": "Planning with AI..."})
-
-    t0 = time.time()
-    try:
-        planner_output = planner_node(state)
-        planner_time = round(time.time() - t0, 2)
-    except Exception as exc:
-        yield emit("stage", {"stage": "PLANNER", "status": "failed", "error": str(exc)})
-        yield emit("failed", {"final_error": str(exc), "error_stage": "PLANNER"})
-        return
-
-    if planner_output.get("status") == "failed":
-        # Surface the REAL exception (kept on planner_node's `final_error_details`)
-        # so the UI doesn't just show the literal string "planner_failed".
-        details = planner_output.get("final_error_details") or {}
-        cause = details.get("message") or planner_output.get("final_error", "planner_failed")
+    # On resume: planner output (spec + execution_plan) is on the checkpoint.
+    # Promote state into the `planner_output` slot the builder expects.
+    if resumed_state and state.get("spec") and state.get("execution_plan"):
+        planner_output = state
+        planner_time = 0.0
         yield emit("stage", {
-            "stage": "PLANNER", "status": "failed",
-            "error": cause,
-            "details": details,
+            "stage": "PLANNER",
+            "status": "skipped",
+            "label": "Skipped (resumed from checkpoint)",
+            "spec": state.get("spec"),
+            "execution_plan": state.get("execution_plan"),
+        })
+        yield emit("spec", {"spec": state.get("spec")})
+        # Builder section header still expected by frontend.
+        for stage in PIPELINE_STAGES:
+            yield emit("stage", {"stage": stage, "status": "pending"})
+        # Fall through to the builder invocation below.
+    else:
+        yield emit("stage", {"stage": "PLANNER", "status": "running", "label": "Planning with AI..."})
+        t0 = time.time()
+        try:
+            planner_output = planner_node(state)
+            planner_time = round(time.time() - t0, 2)
+        except Exception as exc:
+            yield emit("stage", {"stage": "PLANNER", "status": "failed", "error": str(exc)})
+            yield emit("failed", {"final_error": str(exc), "error_stage": "PLANNER"})
+            return
+
+        if planner_output.get("status") == "failed":
+            # Surface the REAL exception (kept on planner_node's `final_error_details`)
+            # so the UI doesn't just show the literal string "planner_failed".
+            details = planner_output.get("final_error_details") or {}
+            cause = details.get("message") or planner_output.get("final_error", "planner_failed")
+            yield emit("stage", {
+                "stage": "PLANNER", "status": "failed",
+                "error": cause,
+                "details": details,
+                "duration": planner_time,
+            })
+            yield emit("failed", {
+                "final_error": cause,
+                "error_stage": "PLANNER",
+                "details": details,
+            })
+            return
+
+        spec = planner_output.get("spec")
+        if not spec:
+            yield emit("stage", {"stage": "PLANNER", "status": "failed", "error": "no_spec_produced"})
+            yield emit("failed", {"final_error": "no_spec_produced", "error_stage": "PLANNER"})
+            return
+
+        execution_plan = planner_output.get("execution_plan")
+
+        yield emit("stage", {
+            "stage": "PLANNER",
+            "status": "success",
             "duration": planner_time,
+            "spec": {
+                "goal": spec.get("goal"),
+                "domain": spec.get("domain"),
+                "steps": spec.get("steps", []),
+                "tools": spec.get("tools", []),
+                "complexity": spec.get("complexity"),
+                "success_criteria": spec.get("success_criteria"),
+            },
+            "execution_plan": execution_plan,
         })
-        yield emit("failed", {
-            "final_error": cause,
-            "error_stage": "PLANNER",
-            "details": details,
-        })
-        return
 
-    spec = planner_output.get("spec")
-    if not spec:
-        yield emit("stage", {"stage": "PLANNER", "status": "failed", "error": "no_spec_produced"})
-        yield emit("failed", {"final_error": "no_spec_produced", "error_stage": "PLANNER"})
-        return
-
-    execution_plan = planner_output.get("execution_plan")
-
-    yield emit("stage", {
-        "stage": "PLANNER",
-        "status": "success",
-        "duration": planner_time,
-        "spec": {
+        yield emit("spec", {"spec": {
             "goal": spec.get("goal"),
             "domain": spec.get("domain"),
             "steps": spec.get("steps", []),
             "tools": spec.get("tools", []),
             "complexity": spec.get("complexity"),
             "success_criteria": spec.get("success_criteria"),
-        },
-        "execution_plan": execution_plan,
-    })
+        }})
 
-    yield emit("spec", {"spec": {
-        "goal": spec.get("goal"),
-        "domain": spec.get("domain"),
-        "steps": spec.get("steps", []),
-        "tools": spec.get("tools", []),
-        "complexity": spec.get("complexity"),
-        "success_criteria": spec.get("success_criteria"),
-    }})
-
-    # ── Builder ────────────────────────────────────────────────────────
-    for stage in PIPELINE_STAGES:
-        yield emit("stage", {"stage": stage, "status": "pending"})
+        # Builder section header (only on the fresh-run path; the resume path
+        # emitted it already above).
+        for stage in PIPELINE_STAGES:
+            yield emit("stage", {"stage": stage, "status": "pending"})
 
     t1 = time.time()
     builder_output = builder_node(planner_output)
@@ -204,6 +271,21 @@ def stream_pipeline(prompt: str, domain: str | None):
             "details": builder_output.get("final_error_details"),
             "build_duration": builder_time,
             "run_audit": builder_output.get("run_audit"),
+        })
+        return
+
+    if builder_output.get("status") == "interrupted":
+        # Sub-agent terminally failed -- but a checkpoint was saved. Tell the
+        # client they can resume by re-invoking /run with resume_run_id=<this>.
+        yield emit("interrupted", {
+            "run_id": builder_output.get("run_id"),
+            "final_error": builder_output.get("final_error"),
+            "failed_step": (builder_output.get("run_audit") or {}).get("failed_step"),
+            "completed_step_count": len(builder_output.get("sub_agent_results") or {}),
+            "checkpoint_saved": bool(builder_output.get("checkpoint_saved")),
+            "build_duration": builder_time,
+            "run_audit": builder_output.get("run_audit"),
+            "resume_hint": "POST /run with body.resume_run_id set to this run_id to continue from the failed step.",
         })
         return
 
@@ -277,7 +359,7 @@ def stream_pipeline(prompt: str, domain: str | None):
 @app.post("/run")
 async def run_pipeline(req: RunRequest):
     def generator():
-        yield from stream_pipeline(req.prompt, req.domain)
+        yield from stream_pipeline(req.prompt, req.domain, req.resume_run_id)
     return StreamingResponse(generator(), media_type="text/event-stream")
 
 

@@ -57,9 +57,11 @@ AgentForge/
           mcp_tools.py               # MCP connectors (MS Learn + Context7 + Exa)
           template_store.py          # NEW 2026-05-10/11. Qdrant per-domain templates collection.
           run_store.py               # NEW 2026-05-10/11. Qdrant single runs collection. Idempotent via md5(run_id).
+          checkpoint_store.py        # NEW 2026-05-11. Qdrant `checkpoints` collection. Resumable pipeline state.
+          html_dedup.py              # NEW 2026-05-11. Deterministic structural dedup on RAW HTML (not Python source).
           validator_engine.py        # state -> syntax -> file -> execution -> audit -> triviality -> browser -> report
           syntax_checker.py
-          execution_checker.py       # subprocess sandbox, clean env, 15s timeout
+          execution_checker.py       # subprocess sandbox (sys.executable, NOT bare "python"), clean env, POSIX rlimits, 15s timeout
           audit_checker.py           # accepts agents_executed as list OR int
           file_checker.py
           browser_checker.py         # website_builder domain only
@@ -75,6 +77,7 @@ AgentForge/
             gemini_provider.py       # uses google-genai SDK (NOT legacy google-generativeai). thinking_budget=0 mandatory.
             minimax_provider.py
             kimi_provider.py
+            mistral_provider.py      # NEW 2026-05-11. REST via /v1/chat/completions (OpenAI-compatible). No SDK dep.
         generated_agents/            # output dir (run_*.py, gitignored). file_writer auto-creates.
       DIAGNOSTIC_REPORT.md
       OPTIMIZATION_REPORT.md
@@ -173,6 +176,8 @@ In `_build_safe_agent()` in builder.py:
 | `mcp_tools.py` | MCP connectors: MS Learn + Context7 + Exa. `is_enabled()`, `fetch_docs_context(domain, goal, max_chars=1500)`. Off by default behind `AGENTFORGE_MCP_DOCS=1`. |
 | `template_store.py` | **NEW.** Qdrant per-domain template collection. `save_template(run_id, domain, goal, spec, generated_code, score)`. Embeds `goal` via all-MiniLM-L6-v2 (384-dim cosine). Dedup threshold 0.75. Upgrade margin 5 quality points. |
 | `run_store.py` | **NEW.** Qdrant single `runs` collection. `save_run(state_dict)`. Deterministic point_id via `int(md5(run_id).hexdigest(), 16) % 10**12` -> idempotent re-saves. KEYWORD payload index on `run_id` (templates collections do NOT have this). |
+| `checkpoint_store.py` | **NEW 2026-05-11.** Qdrant `checkpoints` collection. `save_checkpoint(state, extra)` / `load_checkpoint(run_id)` / `delete_checkpoint(run_id)`. Fixed all-zero 384-dim vector (no semantic search; lookup by `run_id` payload filter). KEYWORD payload index on `run_id`. md5-deterministic point_id. Reuses template_store's lazy client. |
+| `html_dedup.py` | **NEW 2026-05-11.** Deterministic regex-based HTML structural dedup. `dedup_html(html) -> (cleaned, report)` strips duplicate `<header>/<footer>/<nav>/<main>/<h1>/<title>`, dedups `<section id=X>`, merges multiple `<style>` blocks. **MUST be applied to RAW HTML before SafeCodeInjector wraps it in a Python string literal** -- running it on Python source corrupts string boundaries (the `<` regex matches inside the literal). Also exported `is_html_clean()` for template-quality gating. |
 | `validator_engine.py` | Orchestrates validator pipeline. Uses log_event for stage logs. |
 | `syntax_checker.py` | `ast.parse` + `check_unresolved_markers` + `check_triviality`. |
 | `execution_checker.py` | Subprocess in tempdir with timeout=15s + `_build_clean_env()` strips PYTHONPATH. Use `TemporaryDirectory()` context, never `mkdtemp` without cleanup. |
@@ -206,8 +211,9 @@ Configured via `LLM_PROVIDER` env. **PRIMARY changed 2026-05-11**: default is no
 
 | Provider | Model | Notes |
 |---|---|---|
-| gemini | `gemini-3-flash-preview` | **PRIMARY 2026-05-11**. `thinking_budget=0` mandatory (any other value fails). Uses `google-genai` SDK, NOT legacy `google-generativeai`. Produces detailed sections; preferred for sub-agents. |
+| gemini | `gemini-3-flash-preview` (or `gemini-2.5-flash-lite` for higher RPD) | **PRIMARY 2026-05-11**. `thinking_budget=0` mandatory for `-preview` (any other value fails). Uses `google-genai` SDK, NOT legacy `google-generativeai`. Produces detailed sections; preferred for sub-agents. **Free-tier RPD gotcha**: `gemini-2.5-flash` caps at 20 requests/day (one pipeline = 5-7 calls -> 3 runs exhausts quota). `gemini-2.5-flash-lite` is 1000/day. Switch via `GEMINI_MODEL=gemini-2.5-flash-lite` in `.env`. |
 | groq | `llama-3.1-8b-instant` | **Fallback** via `LLM_FALLBACK_PROVIDER=groq`. temperature=0. Produces shorter / more boilerplate output. |
+| mistral | `mistral-small-latest` (or `MISTRAL_MODEL` override) | **NEW 2026-05-11**. REST via `https://api.mistral.ai/v1/chat/completions` (OpenAI-compatible). No new SDK dep; uses `requests`. Good as `LLM_FALLBACK_PROVIDER=mistral` when gemini hits its daily RPD cap. |
 | minimax | (REST) | Secondary fallback. |
 | kimi | (REST) | Secondary fallback. |
 
@@ -236,10 +242,13 @@ Configured via `LLM_PROVIDER` env. **PRIMARY changed 2026-05-11**: default is no
 | `stage` VALIDATOR | `status`, `validation_status`, `validation_score`, `errors`, `warnings`, `duration` |
 | `template_saved` | `True` only if validation_status==passed AND template_store.save_template returned True |
 | `run_saved` | `True` only if validation_status==passed AND run_store.save_run returned True |
-| `success` | `build_duration`, `output_path`, `code`, `domain`, `quality_score`, `run_audit`, `validation_status`, `validation_score`, `validation_report`, `template_saved`, `run_saved`, `sub_agent_results`, `sub_agent_summary` |
+| `success` | `build_duration`, `output_path`, `code`, `domain`, `quality_score`, `run_audit`, `validation_status`, `validation_score`, `validation_report`, `template_saved`, `run_saved`, `template_retrieved`, `template_source_run_id`, `sub_agent_results`, `sub_agent_summary` |
 | `failed` | `final_error`, `error_stage`, `details`, `build_duration?`, `run_audit?` |
+| `interrupted` | **NEW 2026-05-11.** `run_id`, `failed_step`, `completed_step_count`, `checkpoint_saved`, `build_duration`, `run_audit`, `resume_hint`. Fired when sub-agent terminally fails AFTER its own internal retries; checkpoint persists in Qdrant. Client can resume by POST /run with body `{prompt, domain, resume_run_id}`. Distinct from `failed` -- the run can still complete on resume. |
 
 When user reports "run didn't save", inspect `template_saved` and `run_saved` values in the browser DevTools Network tab SSE stream. Don't infer from UI.
+
+On `started` event the new `resumed: bool` field tells the UI whether this is a fresh run or a checkpoint resume. When `resumed=true`, additional fields `completed_steps[]` and `resumed_from_step` are present.
 
 ---
 
@@ -306,9 +315,12 @@ Cross-language mapping (when backend is wired):
 | `LLM_FALLBACK_PROVIDER` | `groq` | Used when primary fails |
 | `LLM_MAX_RETRIES` | `3` | Total attempts on transient errors |
 | `LLM_RETRY_BASE_DELAY` | `1.0` | Seconds; doubled per attempt |
+| `GEMINI_MODEL` | `gemini-3-flash-preview` | Override to `gemini-2.5-flash-lite` to get 1000 RPD instead of 20 RPD (which is what `gemini-2.5-flash` is capped at). |
 | `GEMINI_THINKING_BUDGET` | `0` | **MANDATORY = 0** for gemini-3-flash-preview. Any other value fails. |
 | `GEMINI_MAX_TOKENS_OVERRIDE` | (unset) | Inspection mode: replaces every gemini caller's max_tokens budget |
-| `AGENTFORGE_FORCE_SUB_AGENT_PROVIDER` | (unset) | When set (e.g. `gemini`), forces sub-agents to use this provider regardless of planner-assigned provider |
+| `MISTRAL_API_KEY` | (unset) | Required only if `LLM_PROVIDER=mistral` or `LLM_FALLBACK_PROVIDER=mistral`. |
+| `MISTRAL_MODEL` | `mistral-small-latest` | Optional Mistral model override. Other options: `mistral-medium-latest`, `open-mistral-nemo`. |
+| `AGENTFORGE_FORCE_SUB_AGENT_PROVIDER` | (unset) | When set (e.g. `gemini`, `mistral`), forces sub-agents to use this provider regardless of planner-assigned provider |
 | `AGENTFORGE_SUB_AGENT_MAX_TOKENS` | (unset) | Per-step max_tokens override for sub-agents |
 | `AGENTFORGE_TRACE` | `0` | When `1`, writes per-run JSONL traces |
 | `AGENTFORGE_PLAIN_LOGS` | `0` | When `1`, observability uses human format |
@@ -316,7 +328,7 @@ Cross-language mapping (when backend is wired):
 | `EXA_API_KEY` | (unset) | When set, enables Exa web search MCP for `web_research` domain |
 | `QDRANT_URL` | (required for persistence) | Qdrant Cloud cluster URL (current: eu-central-1 cluster) |
 | `QDRANT_API_KEY` | (required for persistence) | JWT for Qdrant. **In `.env` at REPO ROOT** |
-| `GROQ_API_KEY`, `GEMINI_API_KEY`, `MINIMAX_API_KEY`, `KIMI_API_KEY` | -- | Per-provider credentials |
+| `GROQ_API_KEY`, `GEMINI_API_KEY`, `MINIMAX_API_KEY`, `KIMI_API_KEY`, `MISTRAL_API_KEY` | -- | Per-provider credentials |
 
 **Critical**: `.env` is at REPO ROOT (`AgentForge\.env`), not `apps/ai/.env`. `server.py` loads it via `load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))`. The repo has no `apps/ai/.env`. Smoke tests must load `r'C:\...\AgentForge\.env'` explicitly.
 
@@ -418,6 +430,53 @@ Walk this checklist BEFORE chasing exotic causes (see also rule 17.19):
 
 ---
 
+## 11.7 Checkpoint / resume system (NEW 2026-05-11)
+
+Resumable pipeline: sub-agent failures no longer halt with `status=failed`. A checkpoint is saved to Qdrant and the run ends as `status=interrupted`. The user can resume by re-invoking `POST /run` with `resume_run_id` set.
+
+### Lifecycle
+
+| Pipeline event | Checkpoint action | RunStatus |
+|---|---|---|
+| Each sub-agent step succeeds | upsert by run_id (saves `completed_steps[]`, `sub_agent_results`, `run_audit`, `spec`, `execution_plan`, optimizer output, etc.) | `running` |
+| Sub-agent terminally fails (after its own 2 internal retries) | upsert with `failed_step` marker. Builder returns instead of raising. | `interrupted` (NOT `failed`) |
+| Validator passes | best-effort `delete_checkpoint(run_id)` | `completed` |
+| User re-invokes with `resume_run_id` | `load_checkpoint`, hydrate state, skip optimizer + planner (their outputs are in checkpoint), builder skips already-completed step ids | `running` -> ... |
+
+### Decision: TRUST existing sub_agent retries (no outer retry loop)
+
+`nodes/sub_agent.py` already does 2 retries + 1 raw-output fallback internally. Adding an OUTER retry loop in builder.py would double-spend tokens on hard failures (LLM provider down, quota exhausted). When the inner retries exhaust, the pipeline saves the checkpoint and exits as INTERRUPTED. Cross-invocation recovery via resume_run_id, not in-pipeline retry rotation.
+
+### Collection: `checkpoints` (NOT under `templates_*`)
+
+- Fixed all-zero 384-dim vector -- we look up by `run_id`, never by semantic similarity.
+- KEYWORD payload index on `run_id` for filter-scroll retrieval.
+- Deterministic md5-hashed point_id -- repeated saves of the same run_id idempotently upsert the same point.
+
+### Server.py routing
+
+```py
+class RunRequest(BaseModel):
+    prompt: str
+    domain: str | None = None
+    resume_run_id: str | None = None  # NEW 2026-05-11
+```
+
+When `resume_run_id` is set, `stream_pipeline`:
+1. Loads checkpoint from Qdrant.
+2. Re-uses the ORIGINAL `run_id` (does NOT mint a new `ui_<8hex>`).
+3. Emits `started` with `resumed=true`, `completed_steps`, `resumed_from_step`.
+4. Skips optimizer + planner (their output is in the checkpoint -- emits both stages as `status=skipped` with label "Skipped (resumed from checkpoint)").
+5. Falls through to builder, which skips step ids already in `sub_agent_results`.
+
+### Pitfalls
+
+- **Sub-agent monkey-patch in probes**: `builder.py` does `from nodes.sub_agent import execute_sub_agent` -- binds the function name into the builder module namespace at import time. Patching `nodes.sub_agent.execute_sub_agent` does NOT affect the builder's local reference. To stub during a probe: `builder_mod.execute_sub_agent = stub`.
+- **CANCELLED vs INTERRUPTED** (matters for backend mapping in `apps/backend/src/runs/runs.service.ts`): the AI service emits `interrupted` for upstream/sub-agent failures; explicit user-cancel actions map to `CANCELLED`. They are distinct RunStatus values.
+- **Checkpoint cleanup on success**: validator wraps `delete_checkpoint` in try/except so a Qdrant delete failure can never flip a passing run back to interrupted.
+
+---
+
 ## 12. Cumulative bug-fix history
 
 ### 2026-05-09 session (initial pipeline pass)
@@ -465,6 +524,15 @@ Walk this checklist BEFORE chasing exotic causes (see also rule 17.19):
 - **PROVIDER-2 (2026-05-11)**: Added `AGENTFORGE_FORCE_SUB_AGENT_PROVIDER`, `AGENTFORGE_SUB_AGENT_MAX_TOKENS`, `GEMINI_MAX_TOKENS_OVERRIDE` envs for quality-probing experiments.
 - **PROVIDER-3 (2026-05-11)**: Planner `max_tokens` bumped to 4096 because gemini's verbose JSON for 5-agent plans hits 1100-2500 tokens (was 500, then 1024 -- both truncated).
 - **PROMPT-1 (2026-05-11)**: Sub-agent prompt rewritten with REWRITE-THE-WHOLE contract -- each step emits the COMPLETE artifact built so far. Concrete element counts, exact element types, no Lorem ipsum / TODO. Reason: user explicitly rejected scaffold-only outputs. See rule 17.20.
+- **PROMPT-2 (2026-05-11)**: Planner prompt expanded with per-domain typical-shape rules for document / web_research / data_transform (was a single bullet). Each non-first website_builder step's PRESERVE clause now explicitly forbids re-emitting `<header>/<nav>/<title>/<style>/<h1>`. Step description floor raised to 250-600 chars. Step count made adaptive (3-7).
+- **PROMPT-3 (2026-05-11)**: Optimizer prompt overhaul. `optimized_prompt` is now a multi-section brief (400-900 chars) with Goal / Structure / Content / Constraints / Quality bar sections instead of a single sentence. `detected_requirements` bumped from 3-7 to 6-12 measurable items. Four full domain examples (was 2).
+- **PROMPT-4 (2026-05-11)**: Sub-agent prompt strengthened with TAG COUNT MIRROR rule -- model must count `<header>/<nav>/<footer>/<style>/<title>/<h1>` in `Previous step output` and emit the EXACT SAME COUNT in its output. Plus structural-uniqueness checklist, CSS merge rule, comment markers above sections.
+- **SANDBOX-1 (2026-05-11)**: Sandbox subprocess called bare `["python", ...]` -- Windows PATH lookup picked up `c:\python312\python.exe` (system Python with broken `requests` install: no `urllib3`) instead of the active venv's interpreter. Generated agents reproducibly threw `ModuleNotFoundError: No module named 'urllib3'` at Execution Validation. Fix: `[sys.executable, ...]` -- guarantees sandbox uses the SAME interpreter as the FastAPI parent.
+- **SANDBOX-2 (2026-05-11)**: Cross-platform `_set_resource_limits()` added (POSIX-only via `preexec_fn`): `RLIMIT_AS=256MB` + `RLIMIT_NPROC=32`. Windows skips silently (no `resource` module). Cross-platform floor remains tempdir + clean env + 15s timeout.
+- **PROVIDER-4 (2026-05-11)**: Mistral provider added (`apps/ai/src/llm/providers/mistral_provider.py`). REST via OpenAI-compatible `/v1/chat/completions`, no SDK dep, uses `requests`. Wired into `llm._call_provider` and the planner's AVAILABLE PROVIDERS list. Env: `MISTRAL_API_KEY`, optional `MISTRAL_MODEL` (defaults `mistral-small-latest`).
+- **DEDUP-1 (2026-05-11)**: User reported visually duplicated headers/sections + brand-stitching (Coffee Shop / Coffee Bliss content mixed in one preview). Root cause was old Qdrant templates baked with duplicated structure being served on cosine matches. Fixes: (a) new `services/html_dedup.py` deterministic regex-based dedup, (b) `template_store.retrieve_template` now runs `is_html_clean` on the cached code and REJECTS dirty templates (falls through to fresh generation), (c) `_build_safe_agent` runs `dedup_html` on the RAW HTML (the `combined` string from sub-agents) BEFORE passing to SafeCodeInjector.
+- **DEDUP-2 (2026-05-11)**: Dedup was initially wired AFTER SafeCodeInjector (on `final_code`). That's Python source with `HTML_CONTENT = "..."` -- the regex matched `<header>` inside the Python string literal and mutated the string boundary, breaking `ast.parse` at line 18 column 16 ("HTML_CONTENT = \\""). Fixed by moving dedup to the HTML layer (before injector wraps), not the Python layer (after). Lesson: HTML dedup operates on HTML; never run regex tag-strip passes on Python source.
+- **GEMINI-RPD-1 (2026-05-11)**: User reported "key still has tokens but 429 every call". Probed Gemini directly -- full error revealed `GenerateRequestsPerDayPerProjectPerModel-FreeTier limit=20 model=gemini-2.5-flash`. Free tier has 3 separate quotas (RPM / TPM / RPD); dashboard "tokens" metric doesn't reflect RPD. `gemini-2.5-flash` has the lowest free-tier RPD (20/day); switching `GEMINI_MODEL=gemini-2.5-flash-lite` raises it to 1000/day. Daily quota resets at UTC midnight, NOT the `retryDelay` field's seconds (that's a rolling-window hint).
 
 ### Deferred (still open)
 

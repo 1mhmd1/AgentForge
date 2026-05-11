@@ -24,7 +24,11 @@ RunStatus = Literal[
     "queued",
     "running",
     "completed",
-    "failed"
+    "failed",
+    # New in checkpoint feature: the pipeline halted mid-flight due to a
+    # sub-agent failure, but a checkpoint was saved. The user can re-invoke
+    # with resume_run_id set to pick up where it stopped.
+    "interrupted",
 ]
 
 Complexity = Literal["simple", "medium"]
@@ -134,6 +138,17 @@ class AgentForgeState(TypedDict):
     template_saved: Optional[bool]
     run_saved: Optional[bool]
 
+    # Checkpoint / resume (Qdrant `checkpoints` collection).
+    # resume_run_id -- when the caller invoked /run with this set, we loaded
+    #                  the checkpoint for that run and the builder skips
+    #                  already-completed steps.
+    # resumed_from_step -- 1-indexed step number where the resumed pipeline
+    #                      picked up.
+    # checkpoint_saved -- last save outcome (informational, surfaced via SSE).
+    resume_run_id: Optional[str]
+    resumed_from_step: Optional[int]
+    checkpoint_saved: Optional[bool]
+
 
 # ===== INITIAL STATE =====
 
@@ -227,4 +242,9 @@ def initial_state(run_id: str, user_prompt: str) -> AgentForgeState:
         template_source_run_id=None,
         template_saved=None,
         run_saved=None,
+
+        # Checkpoint / resume
+        resume_run_id=None,
+        resumed_from_step=None,
+        checkpoint_saved=None,
     )

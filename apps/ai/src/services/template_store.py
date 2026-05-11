@@ -343,6 +343,34 @@ def retrieve_template(
             threshold=score_threshold,
         )
         return None
+
+    # Structural-quality gate: a near-match in Qdrant is no good if the
+    # cached code itself has duplicate <header>/<footer>/<h1>/<section>
+    # baked in. Run the same dedup checker the builder uses; reject any
+    # template that fails so corrupted templates can never be served.
+    code = payload.get("generated_code") or ""
+    if domain == "website_builder" and code:
+        try:
+            from services.html_dedup import is_html_clean
+            if not is_html_clean(code):
+                log_event(
+                    "template_store_retrieve_rejected_dirty",
+                    domain=domain,
+                    score=payload.get("_score"),
+                    run_id=payload.get("run_id"),
+                    reason="cached code has structural duplicates",
+                )
+                return None
+        except Exception as exc:
+            # If the checker itself errors, prefer to NOT serve the cached
+            # template -- fresh generation is safer than blindly trusting
+            # something we can't validate.
+            log_event(
+                "template_store_retrieve_quality_check_failed",
+                error=str(exc),
+            )
+            return None
+
     log_event(
         "template_store_retrieved",
         domain=domain,

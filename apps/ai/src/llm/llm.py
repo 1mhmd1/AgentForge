@@ -44,6 +44,9 @@ def _call_provider(provider: str, prompt: str, max_tokens: int) -> tuple[str, di
     elif provider == "kimi":
         from llm.providers.kimi_provider import call_kimi
         return call_kimi(prompt, max_tokens=max_tokens)
+    elif provider == "mistral":
+        from llm.providers.mistral_provider import call_mistral
+        return call_mistral(prompt, max_tokens=max_tokens)
     else:
         raise ValueError("Unknown LLM provider: " + provider)
 
