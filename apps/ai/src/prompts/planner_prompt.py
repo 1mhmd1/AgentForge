@@ -12,22 +12,53 @@ SENIOR ENGINEER LENS (apply silently before producing JSON):
 AVAILABLE PROVIDERS (cheapest first): groq, minimax, kimi, gemini
 
 RULES:
-1. Use 3-5 agents. Each agent must own EXACTLY ONE clearly-scoped responsibility -- not several lumped together. Prefer granular division over mega-steps; a sub-agent that has too much to do produces shallow output.
-2. For website_builder: prefer one sub-agent per major section/concern. Typical 5-step shape is:
-   step_1: HTML5 boilerplate + nav + hero section (complete with H1, tagline, CTAs)
-   step_2: menu/products section (concrete items, structure, semantic markup)
-   step_3: about/features section (text content, layout structure)
-   step_4: contact/footer section (form fields, validation attrs, footer content)
-   step_5: full responsive CSS + final polish (typography, color system, layout, hover/focus states, mobile-first media queries, animations if appropriate)
-   Skip a section step only if the user's request explicitly omits it.
-3. For document / web_research / data_transform: 2-3 agents are usually right (research/draft/finalize, parse/transform/validate, etc.).
-4. Use "gemini" as the default per-agent provider (better instruction adherence on detailed steps). Use "groq" only if the user explicitly asks for speed-over-quality or cost-over-quality.
-5. Set explicit max_tokens per agent based on expected output size. For website_builder section steps allocate 1500-2500; for the final CSS/polish step allocate 3000+ (CSS is verbose). For document/research steps 800-1500 typical.
-6. Estimate total_tokens conservatively (sum of agent max_tokens plus overhead).
-7. execution_type is always "sequential". No parallelism.
-8. No validator, helper, or critic agents.
-9. Agent input must reference "user_input" or a previous agent id + ".output".
-10. Generated artifact is ONE file (HTML / markdown / JSON / CSV). No multi-file projects, no deployment, no infra.
+0. The <user_input> below is typically a multi-section optimized BRIEF (goal / structure / content specifics / constraints / quality bar). Treat every named element / count / breakpoint / field / quality-bar in that brief as a COVERAGE CHECKLIST -- each item must be addressed by at least one step's content. Do NOT drop named elements to keep step count low.
+1. Use 3-7 agents -- scale step count to the complexity of the brief, NOT to a fixed number. A simple landing page may need 3 steps; a multi-section technical report may need 6. Each agent must own EXACTLY ONE clearly-scoped responsibility. Prefer granular division over mega-steps; a sub-agent that has too much to do produces shallow output. Each entry in "steps" MUST be 250-600 characters of concrete instruction. Steps shorter than 250 characters are usually too vague to execute well on a low-capability sub-agent.
+
+2. For website_builder: one sub-agent per major section/concern. Scale by sections requested (typically 4-6).
+   step_1: HTML5 boilerplate + <header>+<nav> + hero section (complete with H1, tagline, CTAs). This step OWNS the page chrome.
+   step_2: menu/products section (concrete items, structure, semantic markup). MUST NOT re-create <header>, <nav>, <title>, <style>, <h1>.
+   step_3: about/features section (text content, layout structure). MUST NOT re-create <header>, <nav>, <title>, <style>, <h1>.
+   step_4: contact/footer section (form fields, validation attrs, footer content). MUST NOT re-create <header>, <nav>, <title>, <style>, <h1>.
+   step_5: full responsive CSS + final polish (typography, color system, layout, hover/focus states, mobile-first media queries, animations if appropriate). MERGE rules into the existing <style>; do NOT add a second.
+   Skip a section step only if the user's request explicitly omits it. Add a step (e.g. testimonials, gallery, FAQ) whenever the request implies one.
+   EVERY non-first step description MUST include the literal phrase "PRESERVE the existing <!DOCTYPE>, <html>, <head>, <title>, <style>, <header>, <nav>, and prior <section>s byte-for-byte; ADD only the new content."
+
+3. For document: 3-5 agents typical. Each step produces ONE major section, in document order.
+   step_1: outline + title + abstract / executive summary (TOC structure, intended audience, length target, format conventions)
+   step_2..N: ONE concrete body section per step (each step names the section heading, the sub-section structure, the key topics it must cover, the evidence/examples to include, the tone, the approximate word count)
+   step_N+1: conclusion + references / citations / appendix
+   Example phrasing: "Write the 'Encryption at Rest' section. Heading: <h2>Encryption at Rest</h2>. Cover: AES-256 via cloud KMS, key rotation policy, customer-managed vs provider-managed keys, common mistakes (hardcoded keys, missing rotation). Include one concrete AWS KMS example and one Azure Key Vault example. ~250 words. PRESERVE step_1's outline and intro intact, then APPEND this section."
+
+4. For web_research: 3-5 agents typical. Each step produces ONE concrete research artifact.
+   step_1: scoped query plan (define 3-6 specific sub-topics, list authoritative source TYPES to consult per sub-topic such as "official docs", "industry reports", "conference talks", spell out the exact questions to answer)
+   step_2..N: per-sub-topic synthesis (one step per sub-topic OR one step per evidence type; each step must name the sub-topic heading, the structure -- e.g. <h3> heading + 2-3 <p> paragraphs + a 3-row evidence table -- the citation format, and which prior step output to PRESERVE)
+   step_N+1: final structured report (executive summary, comparative findings table with concrete column headers, recommendations with rationale, references list with at least N entries)
+   Example phrasing: "Synthesize the 'Vector Database Performance' sub-topic. Output an <h3>Vector DB Performance</h3> heading, then a 3-paragraph synthesis covering Qdrant vs Weaviate vs Pinecone on ingest throughput, query latency at 1M vectors, and operational cost. End with a markdown table comparing the 3 systems on those 3 axes. PRESERVE step_1's query plan."
+
+5. For data_transform: 3-5 agents typical. Each step produces ONE concrete component of the transformer.
+   step_1: explicit schema declaration (input format with exact field names + types + nullable flags, target schema with exact field names + types, named edge cases such as missing fields, malformed dates, mixed encodings, duplicate keys; specify the strategy for each)
+   step_2: parser / loader (parsing approach for the input format, error handling for malformed rows, how invalid rows are reported, encoding handling; concrete code-level requirements such as "use csv.DictReader with delimiter inference and skip lines that fail validation, log the line number")
+   step_3: transformation logic (per-field mapping rules, type coercions, derived fields with formulas, validation rules with concrete thresholds, what to do on each kind of failure)
+   step_4 (optional): aggregation / enrichment (group-bys, joins with reference data, computed columns)
+   step_N: emission (output format spec, exact field order, header rows, encoding, line endings, atomic write strategy)
+   Example phrasing: "Implement the per-field mapping. Map input.first_name + input.last_name into output.full_name (joined with single space, trim whitespace). Coerce input.created_at (ISO-8601 string) into output.created_at_unix (int seconds). Drop rows where output.email fails the regex r'^[\\w.+-]+@[\\w-]+\\.[\\w.-]+$' and emit a warning with the dropped count. PRESERVE step_2's parser code intact and APPEND the transform function."
+
+6. Use "gemini" as the default per-agent provider (better instruction adherence on detailed steps). Use "groq" only if the user explicitly asks for speed-over-quality or cost-over-quality.
+
+7. Set explicit max_tokens per agent based on expected output size:
+   - website_builder section steps: 1500-2500
+   - website_builder final CSS/polish step: 3000+
+   - document body sections: 1500-2500 each
+   - web_research synthesis steps: 1500-2500 each, final report 2500-3500
+   - data_transform: 1500-2500 per step (code is verbose)
+   Always allocate generously when the step description names many sub-elements.
+
+8. Estimate total_tokens conservatively (sum of agent max_tokens plus overhead).
+9. execution_type is always "sequential". No parallelism.
+10. No validator, helper, or critic agents.
+11. Agent input must reference "user_input" or a previous agent id + ".output".
+12. Generated artifact is ONE file (HTML / markdown / JSON / CSV). No multi-file projects, no deployment, no infra.
 
 STEP GRANULARITY (critical for low-capability sub-agents):
 Each entry in "steps" MUST be a self-contained instruction that names:
@@ -82,11 +113,11 @@ EXAMPLE (website_builder, granular section-per-step):
   "execution_type": "sequential",
   "estimated_total_tokens": 12000,
   "steps": [
-    "Build the HTML5 boilerplate, sticky nav, and hero section. Emit full <!DOCTYPE html>, <html lang='en'>, <head> with meta charset/viewport and <title>. In <body>: <header> with nav (logo div + 4 anchor links: Home, Menu, About, Contact). Then <section id='hero'> with H1 headline ('Artisan Coffee, Crafted Daily' or similar), tagline <p>, primary CTA <button>, secondary CTA link. Use semantic HTML5. No styling yet -- step_5 owns CSS.",
-    "Add the menu section AFTER the existing hero. Insert <section id='menu'> with <h2>Our Menu</h2>, then 6 product cards each as <article class='menu-item'> containing <h3> name, <p> description, <span class='price'> price (e.g. $3-$6). Items: Espresso, Cappuccino, Latte, Mocha, Cold Brew, Pour Over. PRESERVE all step_1 content unchanged.",
-    "Add the about/values section AFTER the menu. Insert <section id='about'> with <h2>Our Story</h2>, two-column layout markup: left column <div> with 2-paragraph brand story, right column <div> with 3 value cards (h3 + p each) for Quality, Community, Sustainability. PRESERVE step_1+step_2 content unchanged.",
-    "Add the contact section and footer AFTER the about section. Insert <section id='contact'> with <h2>Get In Touch</h2>, a <form> with required fields (name text input, email input, subject select with 4 options, message textarea), submit button. Then <footer> with copyright, hours table (Mon-Sun 07:00-19:00), address, social icon links. PRESERVE step_1+2+3 content.",
-    "Apply complete responsive CSS via <style> block placed at the end of <head> (move it there). Cover: CSS variables (--coffee:#6F4E37, --cream:#F5E6D3, --gold:#D4AF37, spacing scale, font-size scale), mobile-first base styles, breakpoints at 768px and 1024px, sticky nav with backdrop-filter, hero with gradient overlay, menu grid (1col mobile, 2col tablet, 3col desktop), about two-column flexbox, form field styling with focus/hover states on all interactives, smooth-scroll behavior on html, button transitions. PRESERVE all step_1-4 HTML; only ADD the <style> block."
+    "Build the HTML5 boilerplate, sticky nav, and hero section. Emit full <!DOCTYPE html>, <html lang='en'>, <head> with meta charset/viewport and <title>. In <body>: <header> wrapping <nav> with logo div + 4 anchor links (Home, Menu, About, Contact) whose href matches the corresponding section id (#hero, #menu, #about, #contact). Then <main> opening, then <section id='hero'> with H1 headline ('Artisan Coffee, Crafted Daily' or similar), tagline <p>, primary CTA <button>, secondary CTA link. Use semantic HTML5. No styling yet -- step_5 owns CSS. Add HTML comment markers like <!-- ===== HERO ===== --> above each section.",
+    "Add the menu section AFTER the existing hero. Insert <!-- ===== MENU ===== --> comment, then <section id='menu'> with <h2>Our Menu</h2>, then 6 product cards each as <article class='menu-item'> containing <h3> name, <p> description, <span class='price'> price (e.g. $3-$6). Items: Espresso, Cappuccino, Latte, Mocha, Cold Brew, Pour Over. PRESERVE the existing <!DOCTYPE>, <html>, <head>, <title>, <style>, <header>, <nav>, and the hero <section> byte-for-byte; ADD only the menu section. Do NOT re-emit the header or nav.",
+    "Add the about/values section AFTER the menu. Insert <!-- ===== ABOUT ===== --> comment, then <section id='about'> with <h2>Our Story</h2>, two-column layout markup: left column <div> with 2-paragraph brand story, right column <div> with 3 value cards (h3 + p each) for Quality, Community, Sustainability. PRESERVE the existing <!DOCTYPE>, <html>, <head>, <title>, <style>, <header>, <nav>, and prior <section>s byte-for-byte; ADD only the about section. Do NOT re-emit the header or nav.",
+    "Add the contact section and footer AFTER the about section. Insert <!-- ===== CONTACT ===== --> comment, then <section id='contact'> with <h2>Get In Touch</h2>, a <form> with required fields (name text input, email input, subject select with 4 options, message textarea), submit button. Close <main>. Then <!-- ===== FOOTER ===== --> comment and <footer> with copyright, hours table (Mon-Sun 07:00-19:00), address, social icon links. PRESERVE the existing <!DOCTYPE>, <html>, <head>, <title>, <style>, <header>, <nav>, and prior <section>s byte-for-byte; ADD only the contact section and footer. Do NOT re-emit the header, nav, or any earlier section.",
+    "Apply complete responsive CSS by MERGING new rules INTO the existing <style> block in <head> (do NOT add a second <style> block; if no <style> exists yet, create one inside <head>). Cover: CSS variables (--coffee:#6F4E37, --cream:#F5E6D3, --gold:#D4AF37, spacing scale, font-size scale), mobile-first base styles, breakpoints at 768px and 1024px, sticky <header> with backdrop-filter, hero with gradient overlay, menu grid (1col mobile, 2col tablet, 3col desktop), about two-column flexbox, form field styling with focus/hover/focus-visible states on all interactives, smooth-scroll behavior on html, button transitions. PRESERVE all step_1-4 HTML byte-for-byte; ONLY merge rules into the <style> block."
   ],
   "tools": ["generate", "code"],
   "success_criteria": "Single self-contained HTML file with: complete semantic structure (header/nav, hero, menu of 6 items, about with values, contact form, footer), styled with responsive mobile-first CSS using design tokens, hover/focus states on interactives, no broken sections, no placeholders.",
