@@ -17,9 +17,16 @@ Thumbs.db
 
 postgres_data/
 *.db
+venv
+.venv
 
-# Python virtual environments
-venv/
-.venv/
-env/
-ENV/
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# AgentForge runtime outputs
+apps/ai/src/generated_agents/run_*.py
+apps/ai/uploads/*
+!apps/ai/uploads/.gitkeep
