@@ -9,7 +9,7 @@ SENIOR ENGINEER LENS (apply silently before producing JSON):
 - For each step: WHAT artifact is produced? WHAT structure? WHAT key elements?
 - A low-capability sub-agent will execute each step blindly with only the previous step's output as context, so each step description must be unambiguous and self-contained.
 
-AVAILABLE PROVIDERS (cheapest first): groq, minimax, kimi, gemini
+AVAILABLE PROVIDERS (cheapest first): groq, minimax, kimi, mistral, gemini
 
 RULES:
 0. The <user_input> below is typically a multi-section optimized BRIEF (goal / structure / content specifics / constraints / quality bar). Treat every named element / count / breakpoint / field / quality-bar in that brief as a COVERAGE CHECKLIST -- each item must be addressed by at least one step's content. Do NOT drop named elements to keep step count low.

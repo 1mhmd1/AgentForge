@@ -124,6 +124,25 @@ def _build_safe_agent(domain: str, goal: str, run_id: str, sub_agent_results: di
         combined = goal
 
     if domain == "website_builder":
+        # Run HTML structural dedup on the RAW HTML before SafeCodeInjector
+        # wraps it in a Python string literal. Done here (not after) because
+        # dedup_html operates on HTML; running it on Python source corrupts
+        # string literal boundaries and breaks `ast.parse`.
+        try:
+            from services.html_dedup import dedup_html
+            combined_clean, dedup_report = dedup_html(combined)
+            if not dedup_report.get("is_clean", True):
+                record_event(
+                    run_id, "html_dedup_applied",
+                    dropped=dedup_report.get("dropped_duplicates"),
+                    merged_style_blocks=dedup_report.get("merged_style_blocks"),
+                    deduped_sections=dedup_report.get("deduped_sections"),
+                )
+                combined = combined_clean
+        except Exception as exc:
+            # Dedup failures must never block the build.
+            record_event(run_id, "html_dedup_failed", error=str(exc))
+
         return SafeCodeInjector.build_and_validate(
             domain=domain, goal=goal, html=combined, css="", js="", run_id=run_id
         )
@@ -223,6 +242,22 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
     goal_for_docs = spec.get("goal", "")
     docs_context = _fetch_docs_context(domain_for_docs, goal_for_docs)
 
+    # Checkpoint resume: if state was hydrated from a saved checkpoint, honour
+    # the sub_agent_results that already ran and skip those step ids in the
+    # loop below. `resumed_from_step` (1-indexed) is informational; the source
+    # of truth is which step_ids are already in sub_agent_results.
+    from services import checkpoint_store as _cp
+    resumed_results = next_state.get("sub_agent_results")
+    if isinstance(resumed_results, dict) and resumed_results:
+        sub_agent_results = dict(resumed_results)
+    resumed_completed: set[str] = set(sub_agent_results.keys())
+    if resumed_completed:
+        record_event(
+            next_state.get("run_id"), "builder_resumed",
+            completed_step_count=len(resumed_completed),
+            completed=sorted(resumed_completed),
+        )
+
     for i, step_id in enumerate(execution_order):
         if step_id not in step_map:
             next_state["status"] = "failed"
@@ -232,6 +267,12 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
             run_audit["failed_step"] = step_id
             next_state["run_audit"] = run_audit
             return next_state
+
+        # Resume: skip step ids that completed in a prior invocation. The
+        # cached result is already in sub_agent_results, so the loop just
+        # rolls forward to the first not-yet-done step.
+        if step_id in resumed_completed:
+            continue
 
         step_data = step_map[step_id]
 
@@ -282,16 +323,44 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
         sub_agent_results[step_id] = result
         _track_agent(run_audit, step_id, provider, result.get("usage"))
 
-        # STOP on failure -- no recursive retries, no fallback spawning
+        # On terminal sub-agent failure: save a checkpoint so the user can
+        # resume from this step in a later /run call (pass resume_run_id).
+        # Status becomes INTERRUPTED, NOT FAILED -- the pipeline didn't hit
+        # an unrecoverable error, it paused. Sub-agent's own internal retries
+        # are still the first line of defense; this is the second.
         if result.get("status") == "error":
-            next_state["status"] = "failed"
-            next_state["final_error"] = f"sub_agent_failed_{step_id}"
             next_state["sub_agent_results"] = sub_agent_results
             next_state["error_stage"] = STAGE_EXECUTION_PLANNING
             next_state["completed_stages"] = completed_stages
             run_audit["failed_step"] = step_id
             next_state["run_audit"] = run_audit
+            completed_step_ids = sorted(resumed_completed | set(execution_order[:i]))
+            saved = _cp.save_checkpoint(
+                next_state,
+                extra={
+                    "completed_steps": completed_step_ids,
+                    "failed_step": step_id,
+                    "final_error": f"sub_agent_failed_{step_id}",
+                    "status": "interrupted",
+                },
+            )
+            next_state["status"] = "interrupted"
+            next_state["final_error"] = f"sub_agent_failed_{step_id}"
+            next_state["checkpoint_saved"] = saved
             return next_state
+
+        # Success: persist a checkpoint after every step so a future crash
+        # (process kill, Gemini quota exhaustion mid-run, etc.) can resume.
+        completed_so_far = sorted(resumed_completed | set(execution_order[: i + 1]))
+        _cp.save_checkpoint(
+            next_state,
+            extra={
+                "completed_steps": completed_so_far,
+                "sub_agent_results": sub_agent_results,
+                "run_audit": run_audit,
+                "status": "running",
+            },
+        )
 
     next_state["sub_agent_results"] = sub_agent_results
     next_state["run_audit"] = run_audit
