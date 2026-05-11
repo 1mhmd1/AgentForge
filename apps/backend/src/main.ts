@@ -16,6 +16,21 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
+// Node 25.x has a known regression in the HTTP module's socket teardown
+// (ERR_INTERNAL_ASSERTION in ServerResponse.detachSocket) that crashes the
+// process AFTER the response has already been sent. Swallow it so the server
+// stays up; the actual response was fine.
+process.on('uncaughtException', (err: any) => {
+  if (err?.code === 'ERR_INTERNAL_ASSERTION' && /detachSocket/.test(err?.stack ?? '')) {
+    Logger.warn(
+      `Suppressed Node ${process.version} HTTP teardown assertion: ${err.message}`,
+      'Bootstrap',
+    );
+    return;
+  }
+  throw err;
+});
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
 
@@ -93,7 +108,24 @@ async function bootstrap() {
 
   app.enableShutdownHooks();
 
+  // Node 25 has a regression in the HTTP keep-alive socket teardown path
+  // (`ERR_INTERNAL_ASSERTION` in `ServerResponse.detachSocket`) that
+  // occasionally aborts responses mid-flight on a reused connection. Until
+  // Node ships a fix, force every response to close its socket so each
+  // request gets a fresh one. Cost: a small per-request connect overhead;
+  // worth it for stability.
+  app.use((_req: any, res: any, next: any) => {
+    res.setHeader('Connection', 'close');
+    next();
+  });
+
   await app.listen(port);
+
+  const httpServer: any = app.getHttpServer();
+  if (httpServer) {
+    httpServer.keepAliveTimeout = 0;
+    httpServer.headersTimeout = 10_000;
+  }
   Logger.log(
     `AgentForge backend listening on http://localhost:${port}/api (env=${nodeEnv})`,
     'Bootstrap',

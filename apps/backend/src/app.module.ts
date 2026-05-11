@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { resolve } from 'path';
 
 import configuration from './config/configuration';
 import { PrismaModule } from './prisma/prisma.module';
+import { RedisModule } from './common/redis/redis.module';
 
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -32,6 +34,9 @@ import { ObservabilityModule } from './modules/observability/observability.modul
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      // Monorepo .env lives two levels up from apps/backend (repo root).
+      // Falling back to a local .env too so single-app deploys still work.
+      envFilePath: [resolve(process.cwd(), '../../.env'), resolve(process.cwd(), '.env')],
       load: [() => ({ ...configuration() })],
     }),
     ThrottlerModule.forRootAsync({
@@ -45,6 +50,7 @@ import { ObservabilityModule } from './modules/observability/observability.modul
 
     // Global infrastructure (every module can inject these)
     PrismaModule,
+    RedisModule,
     AuditModule,
     UsageModule,
     CreditsModule,

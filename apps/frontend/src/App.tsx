@@ -9,8 +9,21 @@ import Pricing from './pages/Pricing';
 import Account from './pages/Account';
 import Admin from './pages/Admin';
 import Settings from './pages/Settings';
+import Login from './pages/Login';
+import { AuthProvider, useAuth } from './auth/AuthContext';
+import { SpinnerIcon } from './components/Icons';
 
 export default function App() {
+  return (
+    <AuthProvider>
+      <BackgroundLayers />
+      <AppShell />
+    </AuthProvider>
+  );
+}
+
+function AppShell() {
+  const { status } = useAuth();
   const [page, setPage] = useState('home');
   const [runId, setRunId] = useState<string | null>(null);
   const [warpKey, setWarpKey] = useState(0);
@@ -19,30 +32,25 @@ export default function App() {
     setWarpKey((k) => k + 1);
     setPage(p);
     if (id !== undefined) setRunId(id);
-    if (p === 'run-exec' && id === undefined) setRunId('run_' + Math.random().toString(16).slice(2, 8));
   };
 
-  const handleSubmit = () => {
-    setWarpKey((k) => k + 1);
-    setRunId('run_' + Math.random().toString(16).slice(2, 8));
-    setPage('run-exec');
-  };
+  if (status === 'loading') return <Splash />;
+  if (status === 'unauthenticated') return <Login />;
 
   let content: React.ReactNode;
   switch (page) {
     case 'run-exec': content = <RunExecution runId={runId} onNavigate={navigate} />; break;
     case 'runs':     content = <Runs onNavigate={navigate} />; break;
-    case 'agents':   content = <Agents />; break;
+    case 'agents':   content = <Agents onNavigate={navigate} />; break;
     case 'pricing':  content = <Pricing />; break;
     case 'account':  content = <Account />; break;
     case 'admin':    content = <Admin />; break;
     case 'settings': content = <Settings />; break;
-    default:         content = <Home onNavigate={navigate} onSubmit={handleSubmit} />;
+    default:         content = <Home onNavigate={navigate} />;
   }
 
   return (
     <>
-      <BackgroundLayers />
       <Navbar current={page === 'run-exec' ? 'runs' : page === 'home' ? null : page} onNavigate={navigate} />
       <div key={page} data-page-root="" style={{ animation: 'pageIn 350ms var(--ease-spring) forwards', position: 'relative', zIndex: 1 }}>
         {content}
@@ -58,5 +66,14 @@ export default function App() {
         }}
       />
     </>
+  );
+}
+
+function Splash() {
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, position: 'relative', zIndex: 1 }}>
+      <SpinnerIcon size={22} />
+      <div style={{ color: '#94A3B8', fontSize: 13, fontFamily: 'Inter, sans-serif' }}>Loading session...</div>
+    </div>
   );
 }

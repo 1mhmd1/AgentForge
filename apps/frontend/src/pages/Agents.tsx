@@ -1,12 +1,16 @@
 import React, { useRef, useState } from 'react';
 import { GlobeIcon, TransformIcon, DocIcon, LayoutIcon, ArrowRightIcon } from '../components/Icons';
-import { MOCK_AGENTS } from '../data/mockData';
+import { AGENT_CATALOG, AgentCatalogEntry } from '../api/agents';
 
 const ICON_MAP: Record<string, React.ComponentType<React.SVGProps<SVGSVGElement>>> = { GlobeIcon, TransformIcon, DocIcon, LayoutIcon };
 
 const SHADE: Record<string, string> = { '#06B6D4': '#0891B2', '#7C3AED': '#5B21B6', '#3B82F6': '#1D4ED8', '#F59E0B': '#B45309' };
 
-export default function Agents() {
+interface AgentsProps {
+  onNavigate: (page: string, id?: string) => void;
+}
+
+export default function Agents({ onNavigate }: AgentsProps) {
   return (
     <div style={s.root}>
       <div style={s.header}>
@@ -14,13 +18,13 @@ export default function Agents() {
         <p style={s.subtitle}>Pre-built specialists. Pick one to get started.</p>
       </div>
       <div style={s.grid}>
-        {MOCK_AGENTS.map((a, i) => <AgentCard key={a.id} agent={a} index={i} />)}
+        {AGENT_CATALOG.map((a, i) => <AgentCard key={a.id} agent={a} index={i} onPick={() => onNavigate('home')} />)}
       </div>
     </div>
   );
 }
 
-function AgentCard({ agent, index }: { agent: typeof MOCK_AGENTS[0]; index: number }) {
+function AgentCard({ agent, index, onPick }: { agent: AgentCatalogEntry; index: number; onPick: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const [hover, setHover] = useState(false);
@@ -45,7 +49,7 @@ function AgentCard({ agent, index }: { agent: typeof MOCK_AGENTS[0]; index: numb
         <p style={{ fontSize: 14, color: '#94A3B8', lineHeight: 1.6, margin: '0 0 16px' }}>{agent.desc}</p>
         <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: agent.accent, background: agent.accent + '1a', border: `1px solid ${agent.accent}40`, padding: '3px 10px', borderRadius: 100 }}>{agent.tag}</span>
         <div style={{ marginTop: 20, opacity: hover ? 1 : 0, transform: `translateY(${hover ? 0 : 12}px)`, transition: 'all 200ms ease' }}>
-          <button style={{ width: '100%', padding: '10px 16px', borderRadius: 10, background: `linear-gradient(135deg, ${agent.accent}, ${SHADE[agent.accent] || agent.accent})`, color: 'white', border: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, boxShadow: `0 0 20px ${agent.accent}66` }}>
+          <button type="button" onClick={onPick} style={{ width: '100%', padding: '10px 16px', borderRadius: 10, background: `linear-gradient(135deg, ${agent.accent}, ${SHADE[agent.accent] || agent.accent})`, color: 'white', border: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, boxShadow: `0 0 20px ${agent.accent}66` }}>
             Use Agent <ArrowRightIcon style={{ width: 14, height: 14 }} />
           </button>
         </div>

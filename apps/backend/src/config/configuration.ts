@@ -32,7 +32,9 @@ const Schema = z.object({
     .default('120000')
     .transform((v) => parseInt(v, 10)),
 
+  USE_REDIS: z.enum(['true', 'false']).default('false'),
   REDIS_URL: z.string().url().optional(),
+  REDIS_PASSWORD: z.string().optional(),
   QDRANT_URL: z.string().url().optional(),
   QDRANT_API_KEY: z.string().optional(),
 
@@ -130,7 +132,10 @@ export function loadConfig(): AppConfig {
       enabled: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
     },
     ai: { serviceUrl: env.AI_SERVICE_URL, timeoutMs: env.AI_SERVICE_TIMEOUT_MS },
-    redis: { url: env.REDIS_URL ?? null, enabled: !!env.REDIS_URL },
+    redis: {
+      url: env.REDIS_URL ?? null,
+      enabled: env.USE_REDIS === 'true' && !!env.REDIS_URL,
+    },
     qdrant: {
       url: env.QDRANT_URL ?? null,
       apiKey: env.QDRANT_API_KEY ?? null,
