@@ -137,6 +137,7 @@ export class AuthController {
   // ─── helpers ──────────────────────────────────────────
   private writeAuthCookies(res: Response, tokens: IssuedTokens) {
     const secure = this.config.get<string>('nodeEnv') === 'production';
+    const sameSite = secure ? 'none' : 'lax';
 
     // Access cookie: short, matches JWT_EXPIRES_IN. Browsers will discard the
     // cookie at the same time the JWT expires — no zombie tokens.
@@ -147,13 +148,13 @@ export class AuthController {
     res.cookie('token', tokens.access_token, {
       httpOnly: true,
       secure,
-      sameSite: 'none',
+      sameSite,
       maxAge: accessMaxAgeMs,
     });
     res.cookie('refresh_token', tokens.refresh_token, {
       httpOnly: true,
       secure,
-      sameSite: 'none',
+      sameSite,
       expires: tokens.refresh_expires_at,
       path: '/api/auth',
     });
@@ -161,11 +162,12 @@ export class AuthController {
 
   private clearAuthCookies(res: Response) {
     const secure = this.config.get<string>('nodeEnv') === 'production';
-    res.clearCookie('token', { httpOnly: true, secure, sameSite: 'none' });
+    const sameSite = secure ? 'none' : 'lax';
+    res.clearCookie('token', { httpOnly: true, secure, sameSite });
     res.clearCookie('refresh_token', {
       httpOnly: true,
       secure,
-      sameSite: 'lax',
+      sameSite,
       path: '/api/auth',
     });
   }
