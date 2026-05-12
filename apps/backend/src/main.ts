@@ -37,7 +37,7 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const port = config.get<number>('port') ?? 3000;
   const corsOrigins = config.get<string[]>('corsOrigins') ?? [
-    'http://localhost:5173',
+    'http://localhost:5173','https://agent-forge-frontend-ruby.vercel.app',
   ];
   const nodeEnv = config.get<string>('nodeEnv') ?? 'development';
 
