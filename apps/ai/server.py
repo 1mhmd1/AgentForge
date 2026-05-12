@@ -75,13 +75,49 @@ class RunRequest(BaseModel):
     # from the failed step instead of starting over. The frontend gets this
     # value from a previously-emitted `interrupted` event.
     resume_run_id: str | None = None
+    # Optional attachment forwarded by the NestJS backend for data_transform.
+    # Bytes are base64-encoded so we round-trip binary formats (xlsx) cleanly.
+    attachment_filename: str | None = None
+    attachment_mimetype: str | None = None
+    attachment_content_b64: str | None = None
 
 
 def emit(event: str, data: dict) -> str:
     return f"data: {json.dumps({'event': event, **data})}\n\n"
 
 
-def stream_pipeline(prompt: str, domain: str | None, resume_run_id: str | None = None):
+def _decode_attachment(filename: str | None, mimetype: str | None, content_b64: str | None) -> dict | None:
+    """
+    Decode a base64-encoded attachment forwarded by the backend.
+
+    Returns a dict with `filename`, `mimetype`, `content_bytes` (bytes),
+    `content_text` (utf-8 text or None for binary), and `preview` (first ~2k
+    chars of text content, or a binary marker). Returns None when no
+    attachment was supplied or decoding failed.
+    """
+    if not content_b64:
+        return None
+    import base64
+    try:
+        raw = base64.b64decode(content_b64, validate=True)
+    except Exception:
+        return None
+    text: str | None
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = None  # binary (xlsx etc.) -- the agent decodes via openpyxl
+    preview = (text[:2000] if text else f"[binary, {len(raw)} bytes]")
+    return {
+        "filename": filename or "uploaded_file",
+        "mimetype": mimetype or "application/octet-stream",
+        "content_bytes": raw,
+        "content_text": text,
+        "preview": preview,
+    }
+
+
+def stream_pipeline(prompt: str, domain: str | None, resume_run_id: str | None = None, attachment: dict | None = None):
     # Resume path: if the caller passed resume_run_id, try to load that
     # run's checkpoint and continue from where it stopped. Falls back to a
     # fresh run silently when Qdrant is unreachable or no checkpoint exists.
@@ -125,6 +161,15 @@ def stream_pipeline(prompt: str, domain: str | None, resume_run_id: str | None =
         state = initial_state(run_id=run_id, user_prompt=prompt)
         if domain:
             state["domain"] = domain
+        if attachment:
+            state["attachment_filename"] = attachment.get("filename")
+            state["attachment_mimetype"] = attachment.get("mimetype")
+            state["attachment_content_text"] = attachment.get("content_text")
+            state["attachment_content_b64"] = None  # not used by nodes; freed
+            state["attachment_preview"] = attachment.get("preview")
+            # Bytes stay attached only so the safe_injector can write them to
+            # disk for the generated agent. Removed before checkpointing.
+            state["attachment_bytes"] = attachment.get("content_bytes")
 
     # ── Prompt Optimizer ───────────────────────────────────────────────
     # On resume: the optimizer already ran in the prior invocation; we have
@@ -358,8 +403,14 @@ def stream_pipeline(prompt: str, domain: str | None, resume_run_id: str | None =
 
 @app.post("/run")
 async def run_pipeline(req: RunRequest):
+    attachment = _decode_attachment(
+        req.attachment_filename,
+        req.attachment_mimetype,
+        req.attachment_content_b64,
+    )
+
     def generator():
-        yield from stream_pipeline(req.prompt, req.domain, req.resume_run_id)
+        yield from stream_pipeline(req.prompt, req.domain, req.resume_run_id, attachment)
     return StreamingResponse(generator(), media_type="text/event-stream")
 
 

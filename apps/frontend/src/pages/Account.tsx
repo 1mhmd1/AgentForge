@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { listRuns, RunSummary } from '../api/runs';
 import { toApiError } from '../api/client';
+import { useViewport } from '../hooks/useViewport';
 
 export default function Account() {
   const { user, logout } = useAuth();
@@ -9,6 +10,7 @@ export default function Account() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { isMobile, isTablet } = useViewport();
 
   useEffect(() => {
     let cancelled = false;
@@ -41,12 +43,21 @@ export default function Account() {
   const failed = runs.filter((r) => r.status === 'FAILED' || r.status === 'INTERRUPTED').length;
   const successRate = runs.length > 0 ? (completed / runs.length) * 100 : 0;
 
+  // Responsive overrides for the page's rigid grids. Composed onto the base
+  // style objects via spread so the desktop layout is preserved when these
+  // booleans are false.
+  const titleSize = isMobile ? 28 : isTablet ? 36 : 44;
+  const rootPadding = isMobile ? '36px 14px 80px' : isTablet ? '48px 20px 100px' : '64px 32px 100px';
+  const mainGridCols = isTablet ? '1fr' : 'repeat(2, 1fr)';
+  const statGridCols = isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)';
+  const fieldRowDir: React.CSSProperties['flexDirection'] = isMobile ? 'column' : 'row';
+
   return (
-    <div style={s.root}>
+    <div data-responsive-root style={{ ...s.root, padding: rootPadding }}>
       <div style={s.headerRow}>
         <div>
           <div style={{ ...s.eyebrow, animation: 'fadeUp 500ms var(--ease-spring) both' }}>ACCOUNT</div>
-          <h1 style={{ ...s.title, animation: 'fadeUp 600ms var(--ease-spring) 80ms both' }}>
+          <h1 style={{ ...s.title, fontSize: titleSize, animation: 'fadeUp 600ms var(--ease-spring) 80ms both' }}>
             Your <span style={s.gradient}>workspace</span>
           </h1>
         </div>
@@ -57,7 +68,7 @@ export default function Account() {
         </div>
       </div>
 
-      <div style={s.grid}>
+      <div style={{ ...s.grid, gridTemplateColumns: mainGridCols }}>
         <section style={{ ...s.card, animation: 'cardEntry 700ms var(--ease-spring) 300ms both' }}>
           <SectionTitle>Profile</SectionTitle>
           <div style={s.avatarRow}>
@@ -67,7 +78,7 @@ export default function Account() {
               <div style={{ fontSize: 13, color: '#94A3B8' }}>{displayEmail}</div>
             </div>
           </div>
-          <div style={s.fieldRow}>
+          <div style={{ ...s.fieldRow, flexDirection: fieldRowDir }}>
             <Field label="Role" value={user?.role ?? 'USER'} />
             <Field label="User ID" value={user?.id ? user.id.slice(0, 12) : '—'} />
           </div>
@@ -94,7 +105,7 @@ export default function Account() {
                   {total.toLocaleString('en-US')}
                 </span>
               </div>
-              <div style={s.statGrid}>
+              <div style={{ ...s.statGrid, gridTemplateColumns: statGridCols }}>
                 <Stat label="Completed (recent)" value={String(completed)} tint="#22C55E" />
                 <Stat label="Failed (recent)" value={String(failed)} tint="#EF4444" />
                 <Stat label="Success rate" value={`${successRate.toFixed(1)}%`} tint={successRate >= 80 ? '#22C55E' : '#F59E0B'} />
@@ -116,6 +127,23 @@ export default function Account() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {runs.map((r, i) => {
                 const tint = statusTint(r.status);
+                if (isMobile) {
+                  // Mobile: dot + prompt on top row, status + time on bottom row.
+                  // Keeps the prompt readable without truncation pressure from
+                  // the two metadata cells crowding it on a narrow viewport.
+                  return (
+                    <div key={r.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 14px', borderRadius: 10, background: 'rgba(9,14,26,0.5)', border: '1px solid rgba(26,39,64,0.4)', animation: `fadeUp 400ms ease ${i * 40}ms both` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: tint, boxShadow: `0 0 8px ${tint}99`, flex: '0 0 8px' }} />
+                        <span style={{ fontSize: 13, color: '#E2E8F0', fontFamily: 'Inter, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{r.prompt}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: 18, fontFamily: 'JetBrains Mono, monospace' }}>
+                        <span style={{ fontSize: 11, color: '#94A3B8' }}>{r.status}</span>
+                        <span style={{ fontSize: 11, color: '#475569' }}>{formatWhen(r.createdAt)}</span>
+                      </div>
+                    </div>
+                  );
+                }
                 return (
                   <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '24px 1fr auto auto', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 10, background: 'rgba(9,14,26,0.5)', border: '1px solid rgba(26,39,64,0.4)', animation: `fadeUp 400ms ease ${i * 40}ms both` }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: tint, boxShadow: `0 0 8px ${tint}99` }} />

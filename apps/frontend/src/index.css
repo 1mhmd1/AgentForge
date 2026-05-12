@@ -240,3 +240,38 @@ html.rcursor-on, html.rcursor-on body, html.rcursor-on * { cursor: none !importa
   0%, 100% { opacity: 0.55; transform: translateY(0); }
   50%      { opacity: 1;    transform: translateY(6px); }
 }
+
+/* ── Responsive overrides ──────────────────────────────────────────────
+   The app uses inline styles by design. Page containers that opt-in via
+   `data-responsive-root` get reduced horizontal padding on small screens,
+   so we don't have to re-author every page's inline styles.
+
+   For component-level responsive logic (navbar collapse, hero scaling,
+   layout stacking) see useViewport() — these CSS rules cover only the
+   side-padding + scrollbar concerns. */
+@media (max-width: 1024px) {
+  [data-responsive-root] {
+    padding-left: 20px !important;
+    padding-right: 20px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  [data-responsive-root] {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+  /* Hairline scrollbar on touch devices */
+  *::-webkit-scrollbar { width: 2px; height: 2px; }
+}
+
+/* Honour the OS-level reduced-motion setting -- cuts animation length on
+   everything that uses our shared eases, without disabling our React
+   re-render-triggered animations. The 3D OperationsCenter also pauses its
+   frameloop when this media query matches (see component code). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001s !important;
+    transition-duration: 0.001s !important;
+  }
+}

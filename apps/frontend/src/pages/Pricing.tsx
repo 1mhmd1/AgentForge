@@ -21,7 +21,7 @@ const plans: Plan[] = [
 
 export default function Pricing() {
   return (
-    <div style={s.root}>
+    <div data-responsive-root style={s.root}>
       <div style={s.heading}>
         <div style={{ ...s.eyebrow, animation: 'fadeUp 600ms var(--ease-spring) both' }}>PRICING</div>
         <h1 style={{ ...s.title, animation: 'fadeUp 700ms var(--ease-spring) 100ms both' }}>

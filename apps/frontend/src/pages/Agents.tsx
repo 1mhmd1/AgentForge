@@ -12,7 +12,7 @@ interface AgentsProps {
 
 export default function Agents({ onNavigate }: AgentsProps) {
   return (
-    <div style={s.root}>
+    <div data-responsive-root style={s.root}>
       <div style={s.header}>
         <h2 style={s.title}>Agents</h2>
         <p style={s.subtitle}>Pre-built specialists. Pick one to get started.</p>

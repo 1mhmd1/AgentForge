@@ -6,6 +6,10 @@ import { SseEvent, SseParser } from './sse-parser';
 export interface AiRunRequest {
   prompt: string;
   domain: Domain;
+  attachmentFilename?: string;
+  attachmentMimetype?: string;
+  /** Base64-encoded raw file bytes. Empty/undefined when no attachment. */
+  attachmentContentB64?: string;
 }
 
 export interface AiStreamHandle {
@@ -86,7 +90,17 @@ export class AiProxyService {
           // response itself, so events keep flowing for the full run.
           Connection: 'close',
         },
-        body: JSON.stringify({ prompt: req.prompt, domain: req.domain }),
+        body: JSON.stringify({
+          prompt: req.prompt,
+          domain: req.domain,
+          ...(req.attachmentContentB64
+            ? {
+                attachment_filename: req.attachmentFilename,
+                attachment_mimetype: req.attachmentMimetype,
+                attachment_content_b64: req.attachmentContentB64,
+              }
+            : {}),
+        }),
         signal: controller.signal,
       });
     } catch (err) {

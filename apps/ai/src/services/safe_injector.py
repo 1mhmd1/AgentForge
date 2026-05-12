@@ -4,10 +4,68 @@ Injects content into Python agent templates using serialization layer
 Prevents syntax errors from unsafe string embedding
 """
 
+import base64
+import csv
+import io
 import json
 from typing import Dict, Any
 from services.code_serializer import serialize_for_domain, CodeSerializer
 from services.code_sanitizer import pre_syntax_check
+
+
+def _xml_element_to_dict_eager(el):
+    node = {"tag": el.tag}
+    if el.attrib:
+        node["attrs"] = dict(el.attrib)
+    children = list(el)
+    if children:
+        node["children"] = [_xml_element_to_dict_eager(c) for c in children]
+    elif el.text and el.text.strip():
+        node["text"] = el.text.strip()
+    return node
+
+
+def _eager_transform(mimetype: str, b64: str) -> str:
+    """
+    Build-time twin of parse_input(): parses the uploaded bytes and returns a
+    JSON string. Used to pre-populate TRANSFORMED_OUTPUT in the generated
+    agent so the frontend can offer a download immediately on `success`.
+    """
+    raw = base64.b64decode(b64)
+    m = (mimetype or "").lower()
+    if "csv" in m and "tab" not in m:
+        text = raw.decode("utf-8")
+        parsed = list(csv.DictReader(io.StringIO(text)))
+    elif "tab-separated" in m or m.endswith("tsv"):
+        text = raw.decode("utf-8")
+        parsed = list(csv.DictReader(io.StringIO(text), delimiter="\t"))
+    elif "ndjson" in m or "jsonl" in m:
+        text = raw.decode("utf-8")
+        parsed = [json.loads(line) for line in text.splitlines() if line.strip()]
+    elif "json" in m:
+        parsed = json.loads(raw.decode("utf-8"))
+    elif "openxmlformats" in m or m.endswith("xlsx"):
+        # MUST come before the generic "xml" branch -- the xlsx mimetype is
+        # `application/vnd.openxmlformats-...` which contains the substring
+        # "xml" and would otherwise be mis-routed to the XML parser.
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            parsed = []
+        else:
+            header = [str(h) if h is not None else "" for h in rows[0]]
+            parsed = [
+                {header[i]: r[i] for i in range(min(len(header), len(r)))}
+                for r in rows[1:]
+            ]
+    elif "xml" in m:
+        from xml.etree import ElementTree as ET
+        parsed = _xml_element_to_dict_eager(ET.fromstring(raw.decode("utf-8")))
+    else:
+        parsed = {"text": raw.decode("utf-8", errors="replace")}
+    return json.dumps(parsed, indent=2, ensure_ascii=False, default=str)
 
 
 class SafeCodeInjector:
@@ -280,9 +338,29 @@ Report generated on {datetime.now(timezone.utc).isoformat()}
     def build_data_agent(
         goal: str,
         data: Any,
-        run_id: str = "ui_generated"
+        run_id: str = "ui_generated",
+        input_filename: str | None = None,
+        input_mimetype: str | None = None,
+        input_bytes_b64: str | None = None,
     ) -> str:
-        """Build data_transform domain agent"""
+        """
+        Build data_transform domain agent.
+
+        Two modes:
+          1) `input_bytes_b64` set: the user uploaded a file. The generated
+             agent base64-decodes it, parses based on mimetype, and emits the
+             parsed structure as JSON. Covers CSV/TSV/JSON/JSONL/XML/XLSX.
+          2) Otherwise (legacy): fall back to the older sort-and-stringify
+             behaviour driven by `data`.
+        """
+        if input_bytes_b64:
+            return SafeCodeInjector._build_data_agent_with_upload(
+                goal=goal,
+                run_id=run_id,
+                input_filename=input_filename or "uploaded_file",
+                input_mimetype=input_mimetype or "application/octet-stream",
+                input_bytes_b64=input_bytes_b64,
+            )
 
         agent_functions = '''def step_1_parse():
     """Parse input data"""
@@ -321,6 +399,131 @@ def step_2_transform(data):
         )
 
     @staticmethod
+    def _build_data_agent_with_upload(
+        goal: str,
+        run_id: str,
+        input_filename: str,
+        input_mimetype: str,
+        input_bytes_b64: str,
+    ) -> str:
+        """
+        Generate a self-contained data_transform agent that bakes the uploaded
+        file (base64) into the source and emits a JSON conversion. The result
+        is also surfaced as TRANSFORMED_OUTPUT at module scope so the frontend
+        can extract + offer download without re-running the agent.
+        """
+        from services.code_serializer import CodeSerializer
+
+        serializer = CodeSerializer()
+        goal_safe = serializer.escape_for_python(goal)
+
+        # Trying to also compute the converted output at BUILD TIME so we can
+        # embed it as a JSON-encoded module-level constant. The frontend reads
+        # this with the same JsonStringVar reader used for HTML_CONTENT and
+        # turns it into a Download button. Best-effort -- on parse failure we
+        # ship a stub and let the validator's executed run produce the file.
+        try:
+            transformed_text = _eager_transform(input_mimetype, input_bytes_b64)
+        except Exception:
+            transformed_text = ""
+
+        import json as _json
+        transformed_literal = _json.dumps(transformed_text)
+        input_filename_literal = _json.dumps(input_filename)
+        input_mimetype_literal = _json.dumps(input_mimetype)
+        input_b64_literal = _json.dumps(input_bytes_b64)
+        goal_literal = _json.dumps(goal_safe)
+        run_id_literal = _json.dumps(run_id)
+
+        return f'''import os
+import io
+import csv
+import json
+import base64
+from datetime import datetime, timezone
+
+# Injected metadata
+RUN_ID = {run_id_literal}
+OUTPUT_DIR = "output"
+DOMAIN = "data_transform"
+GOAL = {goal_literal}
+INPUT_FILENAME = {input_filename_literal}
+INPUT_MIMETYPE = {input_mimetype_literal}
+INPUT_BYTES_B64 = {input_b64_literal}
+TRANSFORMED_OUTPUT = {transformed_literal}
+
+
+def parse_input(raw_bytes, mimetype):
+    """Parse the uploaded bytes into a Python structure based on mimetype."""
+    m = (mimetype or "").lower()
+    if "csv" in m and "tab" not in m:
+        text = raw_bytes.decode("utf-8")
+        return list(csv.DictReader(io.StringIO(text)))
+    if "tab-separated" in m or m.endswith("tsv"):
+        text = raw_bytes.decode("utf-8")
+        return list(csv.DictReader(io.StringIO(text), delimiter="\\t"))
+    if "ndjson" in m or "jsonl" in m:
+        text = raw_bytes.decode("utf-8")
+        return [json.loads(line) for line in text.splitlines() if line.strip()]
+    if "json" in m:
+        return json.loads(raw_bytes.decode("utf-8"))
+    if "openxmlformats" in m or m.endswith("xlsx"):
+        # Must come BEFORE the "xml" check because the xlsx mimetype
+        # `application/vnd.openxmlformats-...` contains the substring "xml".
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(raw_bytes), data_only=True, read_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            return []
+        header = [str(h) if h is not None else "" for h in rows[0]]
+        out = []
+        for r in rows[1:]:
+            out.append({{header[i]: r[i] for i in range(min(len(header), len(r)))}})
+        return out
+    if "xml" in m:
+        from xml.etree import ElementTree as ET
+        root = ET.fromstring(raw_bytes.decode("utf-8"))
+        return _xml_element_to_dict(root)
+    # Fallback: best-effort utf-8 text wrapped in {{"text": ...}}
+    return {{"text": raw_bytes.decode("utf-8", errors="replace")}}
+
+
+def _xml_element_to_dict(el):
+    """Compact XML -> dict converter that keeps attrs + children + text."""
+    node = {{"tag": el.tag}}
+    if el.attrib:
+        node["attrs"] = dict(el.attrib)
+    children = list(el)
+    if children:
+        node["children"] = [_xml_element_to_dict(c) for c in children]
+    elif el.text and el.text.strip():
+        node["text"] = el.text.strip()
+    return node
+
+
+def main():
+    print(f"Converting {{INPUT_FILENAME}} ({{INPUT_MIMETYPE}}) for goal: {{GOAL}}")
+    raw = base64.b64decode(INPUT_BYTES_B64)
+    parsed = parse_input(raw, INPUT_MIMETYPE)
+    output = json.dumps(parsed, indent=2, ensure_ascii=False, default=str)
+    save_output(output)
+    return output
+
+
+def save_output(text):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    filepath = os.path.join(OUTPUT_DIR, f"{{RUN_ID}}_data_transform.json")
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"Saved to {{filepath}} ({{len(text)}} chars)")
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+    @staticmethod
     def build_and_validate(domain: str, **kwargs) -> Dict[str, Any]:
         """
         Build agent and validate before returning
@@ -344,6 +547,9 @@ def step_2_transform(data):
                 "error": f"Unknown domain: {domain}"
             }
 
+        # Each builder accepts its own kwarg set. We pass through everything
+        # the caller supplied; Python will surface a TypeError if an unknown
+        # kwarg leaks through (intentional -- the call site is wrong).
         code = builder(**kwargs)
 
         sanitized_code, warnings, is_safe = pre_syntax_check(code)

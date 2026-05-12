@@ -82,11 +82,37 @@ export class RunStreamService {
 
         const run = await this.runs.findById(runId, actor);
 
+        // For data_transform we forward the first attached file's raw bytes
+        // (base64-encoded) so the AI service can decode and feed the data into
+        // the planner/builder. Failing to read the file does NOT abort the run
+        // -- we just log and continue without the attachment.
+        let attachmentPayload: {
+          attachmentFilename?: string;
+          attachmentMimetype?: string;
+          attachmentContentB64?: string;
+        } = {};
+        const firstAttachment = run.attachments?.[0]?.attachment ?? null;
+        if (firstAttachment) {
+          try {
+            const buf = await fs.readFile(firstAttachment.storagePath);
+            attachmentPayload = {
+              attachmentFilename: firstAttachment.filename,
+              attachmentMimetype: firstAttachment.mimetype,
+              attachmentContentB64: buf.toString('base64'),
+            };
+          } catch (err) {
+            this.logger.warn(
+              `Could not read attachment ${firstAttachment.id} for run=${run.id}: ${(err as Error).message}`,
+            );
+          }
+        }
+
         // Open upstream
         try {
           upstreamHandle = await this.aiProxy.openRunStream({
             prompt: run.prompt,
             domain: run.domain as Domain,
+            ...attachmentPayload,
           });
           metrics.inc(metrics.aiRequests, { outcome: 'opened' });
         } catch (err: any) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import BackgroundLayers from './components/BackgroundLayers';
 import Navbar from './components/Navbar';
 import RoboticCursor from './components/RoboticCursor';
@@ -30,11 +30,29 @@ function AppShell() {
   const [page, setPage] = useState('home');
   const [runId, setRunId] = useState<string | null>(null);
   const [warpKey, setWarpKey] = useState(0);
+  const prevStatus = useRef(status);
+
+  // When the user finishes authenticating (loading/unauthenticated -> authenticated),
+  // force-land on the home page. Covers Google OAuth callbacks that may bring
+  // back a non-home path AND any case where the form submission completes from
+  // a deep-linked previous page state.
+  useEffect(() => {
+    if (prevStatus.current !== 'authenticated' && status === 'authenticated') {
+      setPage('home');
+      setRunId(null);
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+    prevStatus.current = status;
+  }, [status]);
 
   const navigate = (p: string, id?: string) => {
     setWarpKey((k) => k + 1);
     setPage(p);
     if (id !== undefined) setRunId(id);
+    // Every page transition starts at the top -- otherwise users land mid-page
+    // (e.g. on the terminal in run-exec) just because the previous page was
+    // scrolled. 'auto' is instant so it slides under the warpFlash overlay.
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
   const goToChat = () => {

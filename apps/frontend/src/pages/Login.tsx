@@ -41,7 +41,7 @@ export default function Login() {
   };
 
   return (
-    <div style={s.root}>
+    <div data-responsive-root style={s.root}>
       <form style={s.card} onSubmit={submit}>
         <div style={s.eyebrow}>
           <SparkleIcon style={{ width: 12, height: 12 }} />

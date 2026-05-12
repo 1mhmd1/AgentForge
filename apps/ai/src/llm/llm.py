@@ -31,6 +31,25 @@ def _is_transient(exc: Exception) -> bool:
     return any(marker in text for marker in _TRANSIENT_MARKERS)
 
 
+# Hard-quota errors (Gemini free-tier daily 20 req cap). Retrying the same
+# provider won't help -- the quota resets in ~24 hours. Detecting these early
+# lets the outer fallback chain skip the wasted retries and jump straight to
+# groq, which is the whole point of having a fallback.
+_QUOTA_MARKERS = (
+    "resource_exhausted",
+    "resource exhausted",
+    "quota exceeded",
+    "exceeded your current quota",
+    "free_tier_requests",
+    "generaterequestsperdayperprojectpermodel",
+)
+
+
+def _is_hard_quota(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in _QUOTA_MARKERS)
+
+
 def _call_provider(provider: str, prompt: str, max_tokens: int) -> tuple[str, dict[str, Any]]:
     if provider == "groq":
         from llm.providers.groq_provider import call_groq
@@ -63,6 +82,12 @@ def _call_with_retries(provider: str, prompt: str, max_tokens: int) -> tuple[str
             return _call_provider(provider, prompt, max_tokens)
         except Exception as exc:
             last_exc = exc
+            # Hard-quota errors won't recover by retrying the same provider --
+            # the daily cap resets in ~24h. Fast-fail so the outer fallback
+            # chain can jump to groq immediately instead of burning 7+ seconds
+            # of useless backoff (1s + 2s + 4s).
+            if _is_hard_quota(exc):
+                raise
             if attempt + 1 >= max_attempts or not _is_transient(exc):
                 raise
             time.sleep(base_delay * (2 ** attempt))
@@ -91,15 +116,28 @@ def call_llm(
     primary. Empty / unset LLM_FALLBACK_PROVIDER disables fallback.
     """
     if provider is None:
-        provider = os.getenv("LLM_PROVIDER", "groq")
+        # Default primary is Gemini -- better instruction adherence on the
+        # detailed planner / sub-agent prompts. Groq is used as the fallback.
+        provider = os.getenv("LLM_PROVIDER", "gemini")
     primary = provider.strip().lower()
-    fallback = (os.getenv("LLM_FALLBACK_PROVIDER", "") or "").strip().lower() or None
+    # Default fallback is Groq when the env var is unset. The user can
+    # explicitly disable fallback by setting LLM_FALLBACK_PROVIDER="" (empty
+    # string) -- the `or None` below preserves that opt-out.
+    _fallback_raw = os.getenv("LLM_FALLBACK_PROVIDER")
+    if _fallback_raw is None:
+        fallback = "groq"
+    else:
+        fallback = _fallback_raw.strip().lower() or None
 
     try:
         return _call_with_retries(primary, prompt, max_tokens)
     except Exception as primary_exc:
         if not fallback or fallback == primary:
             raise
+        # Log fallback attempt to BOTH the observability stream AND stderr so
+        # operators can see it in the AI service console (the dev experience
+        # the user cares about most). Quiet log_event failures are fine -- the
+        # stderr line is the user-visible signal.
         try:
             from services.observability import log_event
             log_event(
@@ -110,13 +148,16 @@ def call_llm(
             )
         except Exception:
             pass
+        import sys as _sys
+        print(
+            f"[llm] {primary} failed -> falling back to {fallback}: {str(primary_exc)[:200]}",
+            file=_sys.stderr, flush=True,
+        )
         # Cap output tokens for the fallback provider. Some fallback models
         # (e.g. groq llama-3.1-8b-instant, 8k context) have a much smaller
         # context window than the primary; a max_tokens that was sensible for
         # gemini-3-flash-preview can leave no room for the prompt and make
-        # EVERY fallback call fail with a context-overflow error. The
-        # per-provider cap is conservative on purpose so the fallback
-        # actually has a chance of returning text on the heaviest steps.
+        # EVERY fallback call fail with a context-overflow error.
         _FALLBACK_OUTPUT_CAP = {
             "groq": 2000,
             "minimax": 2000,
@@ -125,11 +166,22 @@ def call_llm(
         fallback_max = min(max_tokens, _FALLBACK_OUTPUT_CAP.get(fallback, max_tokens))
         try:
             return _call_with_retries(fallback, prompt, fallback_max)
-        except Exception:
-            # Surface the primary failure as the canonical error -- the user
-            # configured primary intentionally; hiding it behind the fallback
-            # error makes debugging confusing.
-            raise primary_exc
+        except Exception as fallback_exc:
+            # Surface BOTH errors so the user can debug. Previously we hid the
+            # fallback failure behind the primary error which made it look
+            # like the fallback never ran. The combined message keeps the
+            # primary error first (since it's what the user configured) but
+            # appends the fallback reason so failures are diagnosable.
+            print(
+                f"[llm] fallback {fallback} ALSO failed: {str(fallback_exc)[:200]}",
+                file=_sys.stderr, flush=True,
+            )
+            combined = (
+                f"Both LLM providers failed. "
+                f"Primary ({primary}): {primary_exc}. "
+                f"Fallback ({fallback}): {fallback_exc}"
+            )
+            raise RuntimeError(combined) from fallback_exc
 
 
 def _empty_usage(provider: str) -> dict[str, Any]:

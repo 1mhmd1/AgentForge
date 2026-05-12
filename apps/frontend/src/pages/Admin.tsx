@@ -27,7 +27,7 @@ const ADMIN_TABS = [
 export default function Admin() {
   const [tab, setTab] = useState('overview');
   return (
-    <div style={s.root}>
+    <div data-responsive-root style={s.root}>
       <div style={s.headerRow}>
         <div>
           <div style={{ ...s.eyebrow, animation: 'fadeUp 500ms var(--ease-spring) both' }}>◈ ADMIN CONSOLE</div>
@@ -301,6 +301,7 @@ function MembersTab() {
               value={m.role}
               disabled={isBusy}
               onChange={(e) => onRoleChange(m, e.target.value as Role)}
+              aria-label={`Change role for ${m.name || m.email}`}
               style={s.select}
             >
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -388,13 +389,16 @@ function GrantCreditsModal({
         <h3 style={{ fontSize: 18, color: '#E2E8F0', margin: '0 0 6px', fontFamily: 'Inter, sans-serif', fontWeight: 700 }}>Top up {user.name || user.email}</h3>
         <div style={{ fontSize: 12, color: '#64748B', fontFamily: 'JetBrains Mono, monospace', marginBottom: 22 }}>{user.email}</div>
 
-        <label style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '0.14em', color: '#475569', marginBottom: 8, fontFamily: 'Inter, sans-serif' }}>AMOUNT (CENTS)</label>
+        <label htmlFor="grant-credits-amount" style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '0.14em', color: '#475569', marginBottom: 8, fontFamily: 'Inter, sans-serif' }}>AMOUNT (CENTS)</label>
         <input
+          id="grant-credits-amount"
           type="number"
           min={1}
           step={1}
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
+          placeholder="e.g. 100000"
+          aria-label="Amount in cents"
           onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
           autoFocus
           style={{ width: '100%', padding: '12px 14px', borderRadius: 10, background: 'rgba(9,14,26,0.8)', border: `1px solid ${valid ? 'rgba(124,58,237,0.4)' : 'rgba(239,68,68,0.5)'}`, color: '#E2E8F0', fontFamily: 'JetBrains Mono, monospace', fontSize: 14, outline: 'none' }}

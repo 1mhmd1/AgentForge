@@ -2,7 +2,7 @@ import React from 'react';
 
 export default function Settings() {
   return (
-    <div style={{ maxWidth: 720, margin: '0 auto', padding: '60px 32px 80px', position: 'relative', zIndex: 1, fontFamily: 'Inter, sans-serif' }}>
+    <div data-responsive-root style={{ maxWidth: 720, margin: '0 auto', padding: '60px 32px 80px', position: 'relative', zIndex: 1, fontFamily: 'Inter, sans-serif' }}>
       <h2 style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.02em', color: '#E2E8F0', margin: '0 0 8px' }}>Settings</h2>
       <p style={{ fontSize: 15, color: '#94A3B8', margin: '0 0 32px' }}>Workspace and account preferences.</p>
       <div style={{ background: 'rgba(13,20,36,0.7)', backdropFilter: 'blur(16px)', border: '1px solid rgba(26,39,64,0.6)', borderRadius: 16, padding: 28, display: 'flex', flexDirection: 'column', gap: 20 }}>

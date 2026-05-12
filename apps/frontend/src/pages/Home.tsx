@@ -2,7 +2,9 @@ import React, { useEffect, useState, useRef, Suspense, lazy } from 'react';
 import { ArrowRightIcon, ChevronDownIcon, SpinnerIcon, SparkleIcon } from '../components/Icons';
 import { AGENT_CATALOG, AgentCatalogEntry } from '../api/agents';
 import { createRun, listRuns, RunSummary } from '../api/runs';
+import { uploadAttachmentTyped, UploadedAttachment } from '../api/files';
 import { toApiError } from '../api/client';
+import { useViewport } from '../hooks/useViewport';
 
 const OperationsCenter = lazy(() => import('../components/OperationsCenter'));
 
@@ -18,7 +20,23 @@ export default function Home({ onNavigate }: HomeProps) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recent, setRecent] = useState<RunSummary[]>([]);
+  const [showHero3D, setShowHero3D] = useState(false);
+  const [hero3DReady, setHero3DReady] = useState(false);
+  const [attachment, setAttachment] = useState<UploadedAttachment | null>(null);
+  const [uploading, setUploading] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { isMobile, isTablet } = useViewport();
+
+  // Hero scales down on small viewports. Headline + min-height shrink so the
+  // CTAs stay above the fold without forcing the user to scroll past the 3D.
+  const heroMinHeight = isMobile ? 520 : isTablet ? 620 : 720;
+  const headingSize = isMobile ? 32 : isTablet ? 40 : 46;
+  const subtitleSize = isMobile ? 12 : 13;
+  const eyebrowSize = isMobile ? 10 : 11;
+  const promptCardPadding = isMobile ? 18 : isTablet ? 24 : 32;
+  const ctaPaddingV = isMobile ? 12 : 14;
+  const ctaPaddingH = isMobile ? 20 : 32;
 
   useEffect(() => {
     let cancelled = false;
@@ -27,6 +45,33 @@ export default function Home({ onNavigate }: HomeProps) {
       .catch(() => { /* recent runs are optional, ignore */ });
     return () => { cancelled = true; };
   }, []);
+
+  // Defer the heavy three.js scene until the browser is idle so the headline,
+  // prompt card, and CTAs paint instantly. Falls back to a short timeout for
+  // browsers without requestIdleCallback (Safari).
+  useEffect(() => {
+    const w = window as any;
+    let idleHandle: number | null = null;
+    let timeoutHandle: number | null = null;
+    const start = () => setShowHero3D(true);
+    if (typeof w.requestIdleCallback === 'function') {
+      idleHandle = w.requestIdleCallback(start, { timeout: 800 });
+    } else {
+      timeoutHandle = window.setTimeout(start, 200);
+    }
+    return () => {
+      if (idleHandle !== null && typeof w.cancelIdleCallback === 'function') w.cancelIdleCallback(idleHandle);
+      if (timeoutHandle !== null) window.clearTimeout(timeoutHandle);
+    };
+  }, []);
+
+  // Fade the Canvas in on the frame AFTER mount so the first heavy paint is
+  // hidden behind opacity:0 -> 1, smoothing the visual handoff from stand-in.
+  useEffect(() => {
+    if (!showHero3D) return;
+    const id = requestAnimationFrame(() => setHero3DReady(true));
+    return () => cancelAnimationFrame(id);
+  }, [showHero3D]);
 
   const autoResize = (el: HTMLTextAreaElement | null) => {
     if (!el) return;
@@ -41,10 +86,18 @@ export default function Home({ onNavigate }: HomeProps) {
       setError('Enter a prompt first.');
       return;
     }
+    if (agent.domain === 'data_transform' && !attachment) {
+      setError('Upload a data file (CSV, JSON, XML, or XLSX) before running a transform.');
+      return;
+    }
     setError(null);
     setRunning(true);
     try {
-      const created = await createRun({ prompt: text, domain: agent.domain });
+      const created = await createRun({
+        prompt: text,
+        domain: agent.domain,
+        attachmentIds: attachment ? [attachment.id] : undefined,
+      });
       onNavigate('run-exec', created.runId);
     } catch (err) {
       const api = toApiError(err);
@@ -53,19 +106,51 @@ export default function Home({ onNavigate }: HomeProps) {
     }
   };
 
+  const handleFile = async (file: File | null | undefined) => {
+    if (!file) return;
+    setError(null);
+    setUploading(true);
+    try {
+      const att = await uploadAttachmentTyped(file);
+      setAttachment(att);
+    } catch (err) {
+      const api = toApiError(err);
+      setError(api.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Clear the attachment when the user switches AWAY from data_transform.
+  // Keeps the UI honest: an upload only makes sense for that domain.
+  useEffect(() => {
+    if (agent.domain !== 'data_transform' && attachment) {
+      setAttachment(null);
+    }
+  }, [agent.domain, attachment]);
+
   return (
     <>
       {/* Full-width hero — escapes the centered max-width container so the office reads edge-to-edge */}
-      <section style={s.hero}>
-        <Suspense fallback={<HeroLoader />}>
-          <OperationsCenter height={s.hero.minHeight as number} />
-        </Suspense>
+      <section style={{ ...s.hero, minHeight: heroMinHeight }}>
+        {/* Static stand-in: a cheap radial gradient that resembles the office
+            floor glow. Always painted, so the hero never looks empty while the
+            3D scene is being deferred / downloaded. */}
+        <div aria-hidden="true" style={s.heroStandIn} />
+        {showHero3D && (
+          <div style={{ ...s.heroCanvasFade, opacity: hero3DReady ? 1 : 0 }}>
+            <Suspense fallback={<HeroLoader />}>
+              <OperationsCenter height={heroMinHeight} />
+            </Suspense>
+          </div>
+        )}
         {/* Headline + CTAs as a single block inside the violet wall screen */}
-        <div style={s.heroTextScreen}>
-          <div style={{ ...s.eyebrow, opacity: 0, animation: 'fadeIn 600ms var(--ease-spring) both' }}>
+        <div style={{ ...s.heroTextScreen, top: isMobile ? 16 : 30, padding: isMobile ? '0 16px' : '0 24px' }}>
+          <div style={{ ...s.eyebrow, fontSize: eyebrowSize, opacity: 0, animation: 'fadeIn 600ms var(--ease-spring) both' }}>
             <SparkleIcon style={{ width: 12, height: 12 }} /> AUTONOMOUS AGENT OPERATIONS CENTER
           </div>
-          <h1 style={s.heading}>
+          <h1 style={{ ...s.heading, fontSize: headingSize }}>
             <span style={{ display: 'inline-block', opacity: 0, animation: 'fadeIn 750ms var(--ease-spring) 0ms both' }}>Build </span>
             <span style={{ display: 'inline-block', opacity: 0, animation: 'fadeIn 750ms var(--ease-spring) 120ms both' }}>AI </span>
             <span style={{ display: 'inline-block', opacity: 0, animation: 'fadeIn 750ms var(--ease-spring) 240ms both' }}>Agents</span>
@@ -74,7 +159,7 @@ export default function Home({ onNavigate }: HomeProps) {
               Instantly.
             </span>
           </h1>
-          <p style={{ ...s.subtitle, opacity: 0, animation: 'fadeIn 600ms var(--ease-spring) 400ms both' }}>
+          <p style={{ ...s.subtitle, fontSize: subtitleSize, opacity: 0, animation: 'fadeIn 600ms var(--ease-spring) 400ms both' }}>
             A live ecosystem of autonomous agents thinking, building, and coordinating in real time. Describe what you want — your fleet ships it.
           </p>
         </div>
@@ -83,10 +168,10 @@ export default function Home({ onNavigate }: HomeProps) {
             Anchoring to the hero's bottom rather than the document flow keeps
             them visually grouped with the scene instead of drifting down the
             page. */}
-        <div style={s.heroCTABand}>
-          <div style={{ ...s.ctaRow, opacity: 0, animation: 'fadeIn 600ms var(--ease-spring) 600ms both' }}>
-            <PrimaryCTA onClick={() => taRef.current?.focus()}>Start Building <ArrowRightIcon style={{ width: 14, height: 14 }} /></PrimaryCTA>
-            <GhostCTA onClick={() => {
+        <div style={{ ...s.heroCTABand, bottom: isMobile ? 32 : 96 }}>
+          <div style={{ ...s.ctaRow, flexDirection: isMobile ? 'column' : 'row', opacity: 0, animation: 'fadeIn 600ms var(--ease-spring) 600ms both' }}>
+            <PrimaryCTA padV={ctaPaddingV} padH={ctaPaddingH} onClick={() => taRef.current?.focus()}>Start Building <ArrowRightIcon style={{ width: 14, height: 14 }} /></PrimaryCTA>
+            <GhostCTA padV={ctaPaddingV} padH={ctaPaddingH} onClick={() => {
               const sample = 'Build a landing page for an AI-powered note-taking app, with a hero, three feature cards, and a pricing CTA.';
               setPrompt(sample);
               setAgent(AGENT_CATALOG.find((a) => a.domain === 'website_builder') ?? AGENT_CATALOG[0]);
@@ -104,17 +189,36 @@ export default function Home({ onNavigate }: HomeProps) {
       </section>
 
       {/* Centered content below the hero */}
-      <div style={s.root}>
+      <div data-responsive-root style={s.root}>
         <section id="prompt-section" style={{ ...s.promptWrap, animation: 'cardEntry 800ms var(--ease-spring) 700ms both' }}>
-          <div style={{ ...s.promptCard, ...(focused ? { borderColor: 'rgba(124,58,237,0.5)', boxShadow: '0 0 0 1px rgba(124,58,237,0.25), 0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(124,58,237,0.18), inset 0 1px 0 rgba(255,255,255,0.05)' } : {}) }}>
+          <div style={{ ...s.promptCard, padding: promptCardPadding, ...(focused ? { borderColor: 'rgba(124,58,237,0.5)', boxShadow: '0 0 0 1px rgba(124,58,237,0.25), 0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(124,58,237,0.18), inset 0 1px 0 rgba(255,255,255,0.05)' } : {}) }}>
             <textarea
               ref={taRef}
               value={prompt}
               onChange={(e) => { setPrompt(e.target.value); autoResize(e.target); }}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
-              placeholder="Describe what you want the agent to do…"
+              placeholder={agent.domain === 'data_transform'
+                ? 'Describe the desired output (e.g., "convert to JSON", "to CSV with columns name,email,phone", "extract addresses as JSONL")…'
+                : 'Describe what you want the agent to do…'}
               style={s.textarea}
+            />
+            {agent.domain === 'data_transform' && (
+              <FileUploadBlock
+                attachment={attachment}
+                uploading={uploading}
+                onPick={() => fileInputRef.current?.click()}
+                onClear={() => setAttachment(null)}
+              />
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.tsv,.tab,.json,.jsonl,.ndjson,.xml,.xlsx,.txt,.md"
+              onChange={(e) => handleFile(e.target.files?.[0])}
+              aria-label="Upload data file"
+              title="Upload data file"
+              style={{ display: 'none' }}
             />
             {error && <div style={s.error}>{error}</div>}
             <div style={s.promptBottom}>
@@ -158,17 +262,17 @@ function HeroLoader() {
   );
 }
 
-function PrimaryCTA({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+function PrimaryCTA({ children, onClick, padV = 14, padH = 32 }: { children: React.ReactNode; onClick?: () => void; padV?: number; padH?: number }) {
   const [hover, setHover] = useState(false);
   return (
-    <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 10, background: 'linear-gradient(135deg, #7C3AED, #3B82F6)', color: 'white', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 15, border: 'none', cursor: 'pointer', boxShadow: hover ? '0 0 50px rgba(124,58,237,0.6), 0 4px 15px rgba(0,0,0,0.3)' : '0 0 30px rgba(124,58,237,0.4), 0 4px 15px rgba(0,0,0,0.3)', transform: hover ? 'scale(1.04)' : 'scale(1)', transition: 'all 200ms cubic-bezier(0.34, 1.56, 0.64, 1)' }}>{children}</button>
+    <button type="button" onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: `${padV}px ${padH}px`, borderRadius: 10, background: 'linear-gradient(135deg, #7C3AED, #3B82F6)', color: 'white', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 15, border: 'none', cursor: 'pointer', boxShadow: hover ? '0 0 50px rgba(124,58,237,0.6), 0 4px 15px rgba(0,0,0,0.3)' : '0 0 30px rgba(124,58,237,0.4), 0 4px 15px rgba(0,0,0,0.3)', transform: hover ? 'scale(1.04)' : 'scale(1)', transition: 'all 200ms cubic-bezier(0.34, 1.56, 0.64, 1)' }}>{children}</button>
   );
 }
 
-function GhostCTA({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+function GhostCTA({ children, onClick, padV = 14, padH = 32 }: { children: React.ReactNode; onClick?: () => void; padV?: number; padH?: number }) {
   const [hover, setHover] = useState(false);
   return (
-    <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ padding: '14px 32px', borderRadius: 10, background: hover ? 'rgba(124,58,237,0.08)' : 'transparent', border: `1px solid ${hover ? 'rgba(124,58,237,0.5)' : 'rgba(148,163,184,0.3)'}`, color: hover ? '#E2E8F0' : '#94A3B8', fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 15, cursor: 'pointer', transition: 'all 200ms ease' }}>{children}</button>
+    <button type="button" onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: `${padV}px ${padH}px`, borderRadius: 10, background: hover ? 'rgba(124,58,237,0.08)' : 'transparent', border: `1px solid ${hover ? 'rgba(124,58,237,0.5)' : 'rgba(148,163,184,0.3)'}`, color: hover ? '#E2E8F0' : '#94A3B8', fontFamily: 'Inter, sans-serif', fontWeight: 500, fontSize: 15, cursor: 'pointer', transition: 'all 200ms ease' }}>{children}</button>
   );
 }
 
@@ -210,6 +314,62 @@ function RunButton({ running, onClick }: { running: boolean; onClick: () => void
   );
 }
 
+function FileUploadBlock({ attachment, uploading, onPick, onClear }: { attachment: UploadedAttachment | null; uploading: boolean; onPick: () => void; onClear: () => void }) {
+  const [dragOver, setDragOver] = useState(false);
+  if (attachment) {
+    return (
+      <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.35)', borderRadius: 10, fontFamily: 'Inter, sans-serif' }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22C55E', boxShadow: '0 0 8px rgba(34,197,94,0.7)' }} />
+        <span style={{ flex: 1, color: '#E2E8F0', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.filename}</span>
+        <span style={{ fontSize: 11, color: '#64748B', fontFamily: 'JetBrains Mono, monospace' }}>{formatBytes(attachment.sizeBytes)}</span>
+        <button type="button" onClick={onClear} style={{ background: 'transparent', border: '1px solid rgba(148,163,184,0.25)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', color: '#94A3B8', fontSize: 12, fontFamily: 'Inter, sans-serif' }}>Remove</button>
+      </div>
+    );
+  }
+  return (
+    <div
+      onClick={onPick}
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const f = e.dataTransfer.files?.[0];
+        if (f) {
+          const input = (e.currentTarget.parentElement?.querySelector('input[type="file"]') as HTMLInputElement | null);
+          if (input) {
+            const dt = new DataTransfer();
+            dt.items.add(f);
+            input.files = dt.files;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(); } }}
+      style={{ marginTop: 14, padding: '14px 16px', borderRadius: 10, border: `1px dashed ${dragOver ? 'rgba(124,58,237,0.6)' : 'rgba(148,163,184,0.35)'}`, background: dragOver ? 'rgba(124,58,237,0.06)' : 'rgba(13,20,36,0.4)', cursor: uploading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'Inter, sans-serif', transition: 'all 150ms ease' }}
+    >
+      {uploading
+        ? <><SpinnerIcon size={14} /><span style={{ color: '#94A3B8', fontSize: 13 }}>Uploading…</span></>
+        : <>
+            <span style={{ fontSize: 18 }}>📎</span>
+            <div style={{ flex: 1, lineHeight: 1.4 }}>
+              <div style={{ color: '#E2E8F0', fontSize: 13, fontWeight: 500 }}>Drop a data file here, or click to browse</div>
+              <div style={{ color: '#64748B', fontSize: 11, marginTop: 2 }}>CSV / TSV / JSON / JSONL / XML / XLSX · max 5MB</div>
+            </div>
+          </>
+      }
+    </div>
+  );
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(2)} MB`;
+}
+
 function RunRowCard({ run, index, onClick }: { run: RunSummary; index: number; onClick: () => void }) {
   const [hover, setHover] = useState(false);
   const statusColors: Record<string, string> = { COMPLETED: '#22C55E', FAILED: '#EF4444', INTERRUPTED: '#EF4444', CANCELLED: '#94A3B8' };
@@ -241,6 +401,14 @@ function formatWhen(iso: string): string {
 const s: Record<string, React.CSSProperties> = {
   root: { maxWidth: 1180, margin: '0 auto', padding: '0 32px 80px', position: 'relative', zIndex: 1 },
   hero: { position: 'relative', width: '100%', minHeight: 720, overflow: 'hidden' },
+  heroStandIn: {
+    position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
+    background:
+      'radial-gradient(ellipse 60% 40% at 50% 78%, rgba(124,58,237,0.28) 0%, rgba(124,58,237,0.08) 35%, transparent 65%),' +
+      'radial-gradient(ellipse 90% 50% at 50% 100%, rgba(6,182,212,0.18) 0%, transparent 60%),' +
+      'linear-gradient(180deg, rgba(5,10,20,0) 0%, rgba(5,10,20,0.55) 70%, rgba(5,10,20,0.9) 100%)',
+  },
+  heroCanvasFade: { position: 'absolute', inset: 0, zIndex: 1, transition: 'opacity 600ms ease' },
   heroContent: { position: 'relative', zIndex: 2, pointerEvents: 'auto' },
   heroTextScreen: {
     position: 'absolute',

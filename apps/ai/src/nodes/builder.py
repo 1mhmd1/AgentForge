@@ -98,7 +98,7 @@ def _track_agent(audit: dict[str, Any], agent_id: str, provider: str, usage: dic
     }
 
 
-def _build_safe_agent(domain: str, goal: str, run_id: str, sub_agent_results: dict[str, Any]) -> dict[str, Any]:
+def _build_safe_agent(domain: str, goal: str, run_id: str, sub_agent_results: dict[str, Any], attachment: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Build agent using SafeCodeInjector -- content safely serialized into
     Python string constants. Guaranteed to produce valid Python.
@@ -155,6 +155,16 @@ def _build_safe_agent(domain: str, goal: str, run_id: str, sub_agent_results: di
             domain=domain, goal=goal, topic=combined, run_id=run_id
         )
     elif domain == "data_transform":
+        if attachment and attachment.get("content_b64"):
+            return SafeCodeInjector.build_and_validate(
+                domain=domain,
+                goal=goal,
+                data=combined,
+                run_id=run_id,
+                input_filename=attachment.get("filename"),
+                input_mimetype=attachment.get("mimetype"),
+                input_bytes_b64=attachment.get("content_b64"),
+            )
         return SafeCodeInjector.build_and_validate(
             domain=domain, goal=goal, data=combined, run_id=run_id
         )
@@ -282,7 +292,11 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
         if i < len(planned_agents):
             agent_plan = planned_agents[i]
             if isinstance(agent_plan, dict):
-                provider = agent_plan.get("provider", "groq")
+                # Default per-sub-agent provider is gemini (matches LLM_PROVIDER
+                # default + the planner prompt's "use gemini" rule). groq is
+                # automatically used as the fallback via call_llm() when gemini
+                # quota / errors out.
+                provider = agent_plan.get("provider", "gemini")
                 max_tokens = agent_plan.get("max_tokens", 1024)
         # Inspection-mode override. When AGENTFORGE_SUB_AGENT_MAX_TOKENS is set
         # (positive integer), it replaces the planner-allocated max_tokens for
@@ -400,7 +414,15 @@ def builder_node(state: dict[str, Any]) -> dict[str, Any]:
     else:
         next_state["template_retrieved"] = False
         next_state["template_source_run_id"] = None
-        safe_result = _build_safe_agent(domain, goal, run_id, sub_agent_results)
+        attachment_for_injector: dict[str, Any] | None = None
+        if next_state.get("attachment_bytes") is not None:
+            import base64 as _b64
+            attachment_for_injector = {
+                "filename": next_state.get("attachment_filename"),
+                "mimetype": next_state.get("attachment_mimetype"),
+                "content_b64": _b64.b64encode(next_state["attachment_bytes"]).decode("ascii"),
+            }
+        safe_result = _build_safe_agent(domain, goal, run_id, sub_agent_results, attachment_for_injector)
 
     if not safe_result.get("valid") or not safe_result.get("code"):
         next_state["status"] = "failed"

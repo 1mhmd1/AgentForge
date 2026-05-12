@@ -41,6 +41,21 @@ def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     optimized = next_state.get("optimized_prompt")
     raw_user = next_state.get("user_prompt", "")
     user_prompt = optimized if isinstance(optimized, str) and optimized.strip() else raw_user
+
+    # data_transform with an uploaded file: surface a preview so the planner
+    # designs the transform around the ACTUAL schema, not an imagined one. The
+    # generated agent at the end of the pipeline reads the full file from disk
+    # -- the preview is just for plan-time context.
+    att_filename = next_state.get("attachment_filename")
+    att_preview = next_state.get("attachment_preview")
+    if att_filename and att_preview:
+        user_prompt = (
+            f"INPUT DATA FILE: {att_filename}\n"
+            f"DETECTED MIMETYPE: {next_state.get('attachment_mimetype') or 'unknown'}\n"
+            f"PREVIEW (first ~2000 chars; the full file is loaded at runtime):\n"
+            f"---\n{att_preview}\n---\n\n"
+            f"USER REQUEST:\n{user_prompt}"
+        )
     prompt = PLANNER_PROMPT.format(user_prompt=user_prompt)
 
     run_id = next_state.get("run_id")
