@@ -15,7 +15,7 @@ import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from 'axios';
 
 const BASE_URL =
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) ||
-  'http://localhost:3000/api';
+  'https://agentforge-1.onrender.com/api';
 
 let inMemoryToken: string | null = null;
 const STORAGE_KEY = 'agentforge.access_token';
