@@ -4,9 +4,10 @@ type State = 'sleeping' | 'waking' | 'awake';
 
 interface Props {
   onGoToChat?: () => void;
+  userName?: string;
 }
 
-export default function SleepingMascot({ onGoToChat }: Props) {
+export default function SleepingMascot({ onGoToChat, userName }: Props) {
   const [state, setState] = useState<State>('sleeping');
   const [hover, setHover] = useState(false);
 
@@ -193,28 +194,40 @@ export default function SleepingMascot({ onGoToChat }: Props) {
         </g>
       </svg>
 
-      {/* Awake-state nudge: small holographic arrow pointing up-right toward the prompt */}
+      {/* Awake-state speech bubble */}
       {state === 'awake' && (
         <div
           aria-hidden="true"
           style={{
             position: 'absolute',
-            left: 36,
-            top: -24,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            fontFamily: 'JetBrains Mono, monospace',
-            fontSize: 9,
-            letterSpacing: '0.18em',
-            color: '#06B6D4',
-            opacity: 0.85,
-            textShadow: '0 0 10px rgba(6,182,212,0.7)',
+            left: -4,
+            top: -76,
+            background: 'rgba(8, 12, 24, 0.95)',
+            border: '1px solid rgba(124,58,237,0.45)',
+            borderRadius: 10,
+            padding: '8px 14px',
+            minWidth: 148,
+            boxShadow: '0 4px 24px rgba(0,0,0,0.55), 0 0 16px rgba(124,58,237,0.12)',
             animation: 'mascot-arrow-pulse 1.4s ease-in-out infinite',
+            fontFamily: 'Inter, system-ui, sans-serif',
           }}
         >
-          <span>READY</span>
-          <span style={{ fontSize: 14 }}>↗</span>
+          <div style={{ fontSize: 11, color: '#A78BFA', fontWeight: 700, marginBottom: 3 }}>
+            Hi, {userName || 'there'}!
+          </div>
+          <div style={{ fontSize: 10, color: '#06B6D4', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4, textShadow: '0 0 8px rgba(6,182,212,0.6)' }}>
+            <span>Let's start</span>
+            <span style={{ fontSize: 13 }}>↗</span>
+          </div>
+          {/* tail */}
+          <div style={{
+            position: 'absolute', bottom: -7, left: 28,
+            width: 12, height: 12,
+            background: 'rgba(8, 12, 24, 0.95)',
+            borderRight: '1px solid rgba(124,58,237,0.45)',
+            borderBottom: '1px solid rgba(124,58,237,0.45)',
+            transform: 'rotate(45deg)',
+          }} />
         </div>
       )}
     </div>

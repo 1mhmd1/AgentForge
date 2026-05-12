@@ -102,3 +102,4 @@ lerna-debug.log
 # IDE
 .history/
 *.code-workspace
+PRESENTATION.md
