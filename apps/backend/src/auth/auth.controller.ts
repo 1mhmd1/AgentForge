@@ -136,7 +136,9 @@ export class AuthController {
 
   // ─── helpers ──────────────────────────────────────────
   private writeAuthCookies(res: Response, tokens: IssuedTokens) {
-    const secure = this.config.get<string>('nodeEnv') === 'production';
+    const frontendUrl = this.config.get<string>('frontendUrl') ?? '';
+    const isHttps = /^https:\/\//i.test(frontendUrl);
+    const secure = this.config.get<string>('nodeEnv') === 'production' || isHttps;
     const sameSite = secure ? 'none' : 'lax';
 
     // Access cookie: short, matches JWT_EXPIRES_IN. Browsers will discard the
@@ -161,7 +163,9 @@ export class AuthController {
   }
 
   private clearAuthCookies(res: Response) {
-    const secure = this.config.get<string>('nodeEnv') === 'production';
+    const frontendUrl = this.config.get<string>('frontendUrl') ?? '';
+    const isHttps = /^https:\/\//i.test(frontendUrl);
+    const secure = this.config.get<string>('nodeEnv') === 'production' || isHttps;
     const sameSite = secure ? 'none' : 'lax';
     res.clearCookie('token', { httpOnly: true, secure, sameSite });
     res.clearCookie('refresh_token', {
