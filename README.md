@@ -289,8 +289,3 @@ npm run build    # builds frontend + backend TypeScript
 | `scripts/test-backend.sh` | 27-case integration suite (auth, runs CRUD, admin guards, SSE) |
 | `scripts/test-qdrant.sh` | 15-case Qdrant suite (cluster, collections, memory search, similarity) |
 
----
-
-## Deep Dive
-
-See [PRESENTATION.md](PRESENTATION.md) for a full breakdown of the pipeline stages, all 4 domain scenarios with examples, MCP architecture details, LLM fallback chain, validation scoring, and every design decision.
