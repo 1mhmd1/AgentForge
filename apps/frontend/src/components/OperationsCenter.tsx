@@ -1176,6 +1176,12 @@ function Scene() {
 export default function OperationsCenter({ height = 720 }: { height?: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(true);
+  const [docVisible, setDocVisible] = useState(typeof document === 'undefined' ? true : !document.hidden);
+  const prefersReducedMotion = useMemo(() =>
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false,
+  []);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -1187,13 +1193,26 @@ export default function OperationsCenter({ height = 720 }: { height?: number }) 
     return () => obs.disconnect();
   }, []);
 
+  useEffect(() => {
+    const onVis = () => setDocVisible(!document.hidden);
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+
+  const active = inView && docVisible;
+  const frameloop: 'always' | 'demand' | 'never' = !active
+    ? 'never'
+    : prefersReducedMotion
+      ? 'demand'
+      : 'always';
+
   return (
     <div ref={ref} style={{ position: 'absolute', inset: 0, height, width: '100%' }} aria-hidden="true">
       <Canvas
         gl={{ antialias: false, powerPreference: 'high-performance', alpha: true, stencil: false, depth: true }}
         dpr={[1, 1]}
         camera={{ position: [0, 2.4, 8.8], fov: 40, near: 0.1, far: 45 }}
-        frameloop={inView ? 'always' : 'never'}
+        frameloop={frameloop}
         style={{ background: 'transparent' }}
       >
         <Scene />

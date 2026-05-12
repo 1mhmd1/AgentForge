@@ -105,7 +105,7 @@ REQUIRED JSON:
       "role": "short_role_name",
       "input": "user_input",
       "output": "output_description",
-      "provider": "groq",
+      "provider": "gemini",
       "max_tokens": 300
     }}
   ]

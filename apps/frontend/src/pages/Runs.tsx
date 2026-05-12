@@ -29,7 +29,7 @@ export default function Runs({ onNavigate }: { onNavigate: (page: string, id?: s
   }, []);
 
   return (
-    <div style={s.root}>
+    <div data-responsive-root style={s.root}>
       <div style={s.header}>
         <h2 style={s.title}>Runs</h2>
         <p style={s.subtitle}>Every agent execution, logged.</p>

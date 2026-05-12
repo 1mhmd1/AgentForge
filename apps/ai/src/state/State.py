@@ -149,6 +149,18 @@ class AgentForgeState(TypedDict):
     resumed_from_step: Optional[int]
     checkpoint_saved: Optional[bool]
 
+    # Attachment (data_transform domain).
+    # attachment_content_text -- utf-8 decoded text for text formats
+    #                           (csv/tsv/json/jsonl/xml); None for binary
+    #                           formats like xlsx.
+    # attachment_bytes        -- raw bytes; freed before checkpointing.
+    # attachment_preview      -- first ~2k chars of text, or a binary marker.
+    attachment_filename: Optional[str]
+    attachment_mimetype: Optional[str]
+    attachment_content_text: Optional[str]
+    attachment_bytes: Optional[bytes]
+    attachment_preview: Optional[str]
+
 
 # ===== INITIAL STATE =====
 
@@ -247,4 +259,11 @@ def initial_state(run_id: str, user_prompt: str) -> AgentForgeState:
         resume_run_id=None,
         resumed_from_step=None,
         checkpoint_saved=None,
+
+        # Attachment (data_transform)
+        attachment_filename=None,
+        attachment_mimetype=None,
+        attachment_content_text=None,
+        attachment_bytes=None,
+        attachment_preview=None,
     )

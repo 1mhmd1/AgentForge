@@ -2,7 +2,7 @@
 
 This file is the single hand-off document for AgentForge. Give it to any new AI/dev so they fully understand the project, the user, decisions made, conventions to follow, corrections already burned-in, and what NOT to do.
 
-Last updated: 2026-05-12 (post end-to-end UI integration: SSE event-type fix, LLM fallback context cap, admin credits UI, admin cancel-all-active, dynamic sub-agent display, HTML fragment rendering for web_research/document). Owner: Mhmd Salim (rabih@chipatech.com).
+Last updated: 2026-05-12 (post evening: data_transform file upload + JSON conversion + download, full-site responsive sweep with hamburger nav + scaled workflow theater, deferred 3D hero mount, stacked result panel, pipeline Explanation tab, gemini-primary/groq-fallback now baked into defaults). Owner: Mhmd Salim (rabih@chipatech.com).
 
 ---
 
@@ -1194,9 +1194,127 @@ Railway gives two URLs in its Postgres Variables tab: internal (`postgres.railwa
 
 ---
 
+## 20.7 2026-05-12 evening session — data_transform upload, full responsive sweep, gemini-default
+
+This was the same calendar day as 20.5/20.6 but a separate continuation block; the work below was done AFTER the morning end-to-end-integration session above. The merge of `Buildernode` -> `frontend` (12 staged files, all conflicts resolved) was OPEN at the start of this block and is STILL OPEN at the end of it — committing is the user's call.
+
+### 20.7.1 data_transform domain: file upload → JSON conversion → download (the big one)
+
+The data_transform pipeline now accepts an uploaded data file (CSV/TSV/JSON/JSONL/XML/XLSX), the planner sees a preview of the actual schema, the builder generates a self-contained Python agent that bakes the file in as base64 + parses it at runtime, and the converted JSON is shown in the Preview tab with a Download button. Six surfaces touched:
+
+**Frontend:**
+- `apps/frontend/src/api/files.ts` (new) — `uploadAttachmentTyped(file)` infers MIME by extension (browsers leave .csv/.jsonl/.xml/.xlsx empty on some OSes), creates a retyped `File`, posts to `POST /api/files` (multipart), returns `UploadedAttachment {id, filename, mimetype, sizeBytes}`.
+- `apps/frontend/src/pages/Home.tsx` — when `data_transform` is the selected domain, renders `FileUploadBlock`: drag-drop + click-to-pick + selected-file chip with Remove + uploading spinner. Auto-clears when user switches to another domain. Placeholder text changes to "Describe the desired output (e.g., 'convert to JSON')". `handleRun()` blocks with an error if no file is attached for data_transform.
+- `apps/frontend/src/pages/RunExecution.tsx` — new `DataTransformPreview` component: extracts `TRANSFORMED_OUTPUT` from generated source (same JSON-encoded-var reader as `HTML_CONTENT`), shows record/key count + pretty-printed JSON pane + a "↓ Download <stem>.converted.json" gradient button that builds a Blob and triggers download. Also new `extractInputFilename()` pulls the original filename out of the generated agent so the downloaded file uses a sensible name. `extractEmbeddedArtifact()` priority list now starts with `TRANSFORMED_OUTPUT` before `HTML_CONTENT`.
+
+**Backend:**
+- `apps/backend/src/modules/files/files.service.ts` — MIME allowlist expanded with `text/tab-separated-values`, `text/xml`, `application/xml`, `application/x-ndjson`, and a new `'binary'` handler for `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (xlsx). The `binary` branch SKIPS the UTF-8 validation (which would always fail for xlsx) and SKIPS the `extracted` text preview (the AI service decodes via openpyxl).
+- `apps/backend/src/runs/ai-proxy.service.ts` — `AiRunRequest` now carries `attachmentFilename?: string`, `attachmentMimetype?: string`, `attachmentContentB64?: string`. Forwarded in the JSON body to AI service as `attachment_filename` / `attachment_mimetype` / `attachment_content_b64`.
+- `apps/backend/src/runs/run-stream.service.ts` — at upstream-stream-open time, looks up `run.attachments[0].attachment`, reads the file from `storagePath` via `fs.readFile`, base64-encodes, threads through `aiProxy.openRunStream`. Read failures log a warning and continue without the attachment (does NOT abort the run).
+- `CreateRunDto.attachmentIds: string[]` and `runs.service.createRun` AttachmentRef linkage were already wired before this session — verified intact.
+
+**AI service:**
+- `apps/ai/server.py` — `RunRequest` accepts `attachment_filename / attachment_mimetype / attachment_content_b64`. New `_decode_attachment()` base64-decodes, tries UTF-8 decode (falls back to None for binary like xlsx), builds a 2k-char preview (or `[binary, N bytes]` marker). `stream_pipeline()` threads attachment dict onto `state["attachment_*"]` (filename, mimetype, content_text, bytes, preview).
+- `apps/ai/src/state/State.py` — five new fields: `attachment_filename`, `attachment_mimetype`, `attachment_content_text`, `attachment_bytes` (raw bytes; freed before checkpointing), `attachment_preview`.
+- `apps/ai/src/nodes/planner.py` — when `data_transform` + attachment present, prepends a structured `INPUT DATA FILE: ... PREVIEW: ... USER REQUEST: ...` block to `user_prompt` BEFORE `PLANNER_PROMPT.format()`. Planner designs around real schema, not imagined one.
+- `apps/ai/src/nodes/builder.py` — `_build_safe_agent()` takes an optional `attachment` dict; for `data_transform` with `content_b64` present, passes `input_filename / input_mimetype / input_bytes_b64` to `SafeCodeInjector.build_and_validate`. The dispatch at the call site base64-re-encodes `state["attachment_bytes"]` to build that dict.
+- `apps/ai/src/services/safe_injector.py` — major rewrite of data_transform path:
+  - `build_data_agent()` now branches: with `input_bytes_b64` it delegates to new `_build_data_agent_with_upload()`; without it falls back to the legacy stub.
+  - `_build_data_agent_with_upload()` generates a self-contained agent that bakes `INPUT_BYTES_B64`, `INPUT_FILENAME`, `INPUT_MIMETYPE` as module-level JSON-encoded vars, has a `parse_input(raw_bytes, mimetype)` that dispatches to csv/tsv/json/jsonl/xml/xlsx, a `_xml_element_to_dict()` helper, a `main()` that decodes-parses-saves, and writes to `output/{RUN_ID}_data_transform.json`.
+  - At BUILD time also calls a new module-level `_eager_transform(mimetype, b64)` to compute the converted JSON eagerly and embed it as `TRANSFORMED_OUTPUT` in the source. This means the frontend can offer Download immediately on the `success` event WITHOUT re-running the agent. On eager-parse failure, `TRANSFORMED_OUTPUT` stays empty and the validator's execution still produces the file.
+
+**One real bug found + fixed during smoke testing:** xlsx mimetype is `application/vnd.openxmlformats-...` which contains the substring "xml". The first version of `_eager_transform()` and the generated `parse_input()` both checked `"xml" in m` BEFORE the xlsx branch, so xlsx uploads were routed to the XML parser and failed with `UnicodeDecodeError`. Fix: check `"openxmlformats" in m or m.endswith("xlsx")` FIRST in BOTH places.
+
+**Smoke-tested:** CSV / TSV / JSON / JSONL / XML / XLSX all round-trip through `_eager_transform()` AND the generated agent compiles via `compile()` for every format. `openpyxl==3.1.5` was installed into the venv and pinned in `Requirements.txt`.
+
+### 20.7.2 Full-site responsive sweep — without touching the 3D scene or the inline-style architecture
+
+Pattern: a `useViewport()` hook for component-level breakpoint decisions PLUS a `data-responsive-root` opt-in CSS attribute for page containers. **No** class-name refactor — the inline-style convention (memory section 3 rule 3, feedback file `feedback_inline_style_warnings_ignored.md`) is preserved.
+
+Breakpoints: **640px (mobile)**, **1024px (tablet)**.
+
+**Foundation:**
+- `apps/frontend/src/hooks/useViewport.ts` (new) — subscribes to `resize` + `orientationchange` (rAF-throttled), returns `{width, height, isMobile, isTablet}`. SSR-safe (`typeof window === 'undefined'` check).
+- `apps/frontend/src/index.css` — appended a small responsive block: `[data-responsive-root]` containers get padding shrunk to 20px @ <1024 and 14px @ <640 via `!important`; scrollbar shrinks to 2px on touch; `@media (prefers-reduced-motion: reduce)` collapses every animation/transition to 0.001s.
+
+**Navbar (`apps/frontend/src/components/Navbar.tsx`):**
+- Below 1024px the horizontal links collapse to a hamburger button on the right.
+- Tapping opens a slide-in right sheet (`min(320px, 80vw)`) with backdrop scrim, Esc-to-close, click-outside-to-close, auto-close on viewport upgrade.
+- Animated 3-bar hamburger morphs into an X when open.
+- `aria-expanded` written as `'true' | 'false'` string (NOT bare boolean) to satisfy strict ARIA linter.
+
+**Home (`apps/frontend/src/pages/Home.tsx`):**
+- Hero `minHeight`: **720 → 620 (tablet) → 520 (mobile)** via `useViewport`.
+- Headline `fontSize`: **46 → 40 → 32**. Subtitle + eyebrow shrink one notch.
+- CTA row stacks vertically on mobile (`flexDirection: 'column'`); CTA padding shrinks. `PrimaryCTA` / `GhostCTA` now accept `padV` / `padH` props.
+- Prompt card padding: **32 → 24 → 18**.
+- The 3D scene `OperationsCenter` receives the same `heroMinHeight` value, so it scales naturally with the hero. No 3D code touched.
+
+**WorkflowTheater (`apps/frontend/src/components/WorkflowTheater.tsx`):**
+- Below 760px the inner world gets a proportional CSS `transform: scale(sceneScale)` composed with the existing `rotateX(26deg)` — capped at 0.5 for very narrow phones.
+- Root height shrinks proportionally so empty space above/below collapses too.
+- Result: agents that sit at x: ±310 no longer clip off-screen on mobile; choreography reads correctly.
+
+**RunExecution (`apps/frontend/src/pages/RunExecution.tsx`):**
+- Header is `flexWrap: 'wrap'`; run ID gets `text-overflow: ellipsis` + `maxWidth: 60%` so it never pushes the score off-screen.
+- Already-stacked grid (`gridTemplateColumns: '1fr'`) from the earlier "preview below terminal" change works at every viewport.
+- Added `data-responsive-root` so root padding shrinks on small screens.
+
+**All pages:** added `data-responsive-root` attribute to root containers in `Home`, `RunExecution`, `Runs`, `Pricing`, `Agents`, `Login`, `Account`, `Admin`, `Settings`. `Agents.tsx` already used `repeat(auto-fill, minmax(280px, 1fr))` so it's naturally responsive — no changes needed there. `Admin` grids stay rigid (admin is desktop-mostly per the user's stated workflow).
+
+**OperationsCenter (`apps/frontend/src/components/OperationsCenter.tsx`):**
+- Frameloop now also pauses when `document.hidden` is true (tab switched away) via `visibilitychange` listener.
+- Honors `prefers-reduced-motion`: `frameloop="demand"` instead of `"always"` for users with motion disabled.
+- These changes do NOT affect the visual design — just save GPU when nobody's watching.
+
+### 20.7.3 Hero 3D perf — deferred mount + static stand-in + fade-in
+
+`apps/frontend/src/pages/Home.tsx`:
+- Two new state hooks: `showHero3D` (mounts the lazy `OperationsCenter` only after `requestIdleCallback` fires, with a 200ms `setTimeout` fallback for Safari), `hero3DReady` (toggled to `true` on the rAF AFTER mount so we can fade in cleanly).
+- New `s.heroStandIn` — a cheap radial-gradient div painted at z:0 from page load. Always visible so the hero never looks empty while the 3D chunk loads.
+- `s.heroCanvasFade` — z:1 wrapper around the `OperationsCenter` with `opacity: 0 -> 1` over 600ms once mounted, hiding the heavy first-frame paint behind the transition.
+
+What you feel: first paint is instant (gradient + text + CTAs + prompt card), then ~50-200ms later the 3D fades in. No more "blank hero while three.js boots".
+
+### 20.7.4 Result panel — stacked layout + Explanation tab rewrite
+
+**Layout (`apps/frontend/src/pages/RunExecution.tsx`):**
+- `s.grid`: `gridTemplateColumns: '6fr 4fr'` -> `'1fr'`. Terminal goes on top, result panel below at the full container width (max 1280px).
+- iframe height: 460 -> **720** (more vertical real estate now that it's full-width).
+- Document/text preview `maxHeight`: 460 -> 720 to match.
+
+**Explanation tab — new `PipelineExplanation` component:**
+- Replaces the old 3-bullet block.
+- 5-stage timeline (purple-bordered rail with chips): Prompt Optimizer / Planner / Builder / Validator / Persistence & Telemetry.
+- Builder expands to its 8 sub-stages (Spec Validation → Execution Planning → Template Loading → Template Rendering → Code Injection → Quality Validation → Syntax Validation → File Writing) each with a one-line description.
+- Lead paragraph names the Gemini → Groq fallback chain so users understand why a quota miss doesn't break the run.
+- Reads the current `domain` so the validator copy says "rendered website preview" / "rendered document" / etc. instead of generic "artifact".
+- Self-contained `ex: Record<string, React.CSSProperties>` style object below the component (same convention as `s` and `ss`).
+
+### 20.7.5 LLM defaults: gemini primary, groq fallback (baked into defaults, not just .env)
+
+The user's `.env` already set this, but the code DEFAULTS still pointed to groq in five spots. New person cloning the repo without a `.env` would silently get the wrong primary. Fixed:
+
+- `apps/ai/src/llm/llm.py:94` — `call_llm()` default primary: `os.getenv("LLM_PROVIDER", "groq")` → `"gemini"`.
+- `apps/ai/src/llm/llm.py:96-103` — fallback default: previously `None` when env unset; now defaults to `"groq"` when `LLM_FALLBACK_PROVIDER` is not set. **Explicit empty string** (`LLM_FALLBACK_PROVIDER=""`) preserves the opt-out path for users who want gemini-only.
+- `apps/ai/src/nodes/builder.py:295` — sub-agent provider default when the planner doesn't specify one: `agent_plan.get("provider", "groq")` → `"gemini"`.
+- `apps/ai/src/prompts/planner_prompt.py:108` — schema example `"provider": "groq"` → `"gemini"`. Examples win over rules with LLMs (memory section 17.31 / `feedback_planner_dynamic_agent_count.md`).
+- `.env.example` — flipped to `LLM_PROVIDER=gemini` + added `LLM_FALLBACK_PROVIDER=groq` with a 6-line comment explaining the chain, the `_FALLBACK_OUTPUT_CAP=2000` for groq's smaller context, and the explicit-empty opt-out.
+
+**Smoke-verified** with `_call_provider` monkey-patched: clean env → primary=gemini called first → after primary throws transient → fallback=groq called with `max_tokens=2000`. Explicit empty `LLM_FALLBACK_PROVIDER=""` → primary called only, no fallback attempt. Builder default sub-agent provider returns `"gemini"` when the planner spec omits one.
+
+### 20.7.6 New small things worth remembering
+
+- **xlsx mimetype contains "xml" as a substring** — `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`. Any mimetype dispatch that does a substring check needs xlsx BEFORE xml. (Burned by this once during this session.)
+- **Build-time eager transform** — when the builder can pre-compute the artifact, embed it as a JSON-encoded module-level var (`TRANSFORMED_OUTPUT`, `HTML_CONTENT` etc.). Frontend reads it via the `readJsonStringVar(NAME)` pattern. Avoids re-running the agent for the Preview/Download.
+- **Mid-merge state** — `Buildernode` → `frontend` is currently mid-merge: 12 files staged, all conflicts resolved, just no commit yet. The user is the one who'll decide when to `git commit` to finalize.
+- **CTA prop pattern** — `PrimaryCTA` / `GhostCTA` now take optional `padV` / `padH` props. The pattern works well for responsive sizing; can extend to other reused button components if needed.
+
+---
+
 ## 21. Final operating instruction
 
-If you're a new AI picking up this project: **read sections 0, 17, and 19 first.** They tell you how to behave. Then skim the rest as needed. Verify against current code before acting on any specific recommendation here -- this document reflects 2026-05-11 state.
+If you're a new AI picking up this project: **read sections 0, 17, and 19 first.** They tell you how to behave. Then skim the rest as needed. Verify against current code before acting on any specific recommendation here -- this document reflects 2026-05-12 state (post-evening: data_transform upload, full responsive, gemini-default).
 
 If two parts of the system disagree about a contract -> **shared types win.**
 

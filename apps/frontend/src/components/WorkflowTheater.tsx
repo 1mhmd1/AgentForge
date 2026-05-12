@@ -1,4 +1,5 @@
 import React from 'react';
+import { useViewport } from '../hooks/useViewport';
 
 const STAGE_ORDER = ['planning', 'building', 'validating'];
 
@@ -10,8 +11,17 @@ interface WorkflowTheaterProps {
 }
 
 export default function WorkflowTheater({ stage, subAgents = [] }: WorkflowTheaterProps) {
+  // The 3-agent row sits at x: ±310. At narrow widths those positions clip
+  // out of view -- so we proportionally scale the whole scene down rather
+  // than re-architecting the coordinate system.
+  const { width } = useViewport();
+  // Design target: the scene reads correctly at 760+ wide. Below that we
+  // scale proportionally, capping at 0.5 (very narrow phones).
+  const sceneScale = width >= 760 ? 1 : Math.max(0.5, width / 760);
+  const rootHeight = Math.round(620 * Math.max(0.65, sceneScale));
+
   return (
-    <div style={ts.root}>
+    <div style={{ ...ts.root, height: rootHeight }}>
       <div style={ts.skyGlow} />
       <div style={ts.fogBottom} />
       <div style={ts.header}>
@@ -25,7 +35,7 @@ export default function WorkflowTheater({ stage, subAgents = [] }: WorkflowTheat
       </div>
 
       <div style={ts.scene}>
-        <div style={ts.world}>
+        <div style={{ ...ts.world, transform: `rotateX(26deg) scale(${sceneScale})` }}>
           <Floor />
           <EnergyBeam active={stage === 'building' || STAGE_ORDER.indexOf(stage) > 1 || stage === 'completed'} from="planner" to="builder" color="#7C3AED" />
           <EnergyBeam active={stage === 'validating' || stage === 'completed'} from="builder" to="validator" color="#3B82F6" />

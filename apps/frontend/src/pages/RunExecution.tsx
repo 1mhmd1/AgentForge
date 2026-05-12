@@ -271,10 +271,10 @@ export default function RunExecution({ runId, onNavigate }: RunExecProps) {
   };
 
   return (
-    <div style={s.root}>
-      <div style={s.header}>
+    <div data-responsive-root style={s.root}>
+      <div style={{ ...s.header, flexWrap: 'wrap' }}>
         <button type="button" onClick={() => onNavigate('runs')} style={s.back}>← Runs</button>
-        <span style={s.runId}>{runId ?? 'no run selected'}</span>
+        <span style={{ ...s.runId, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60%' }}>{runId ?? 'no run selected'}</span>
         {validationScore !== null && <span style={s.score}>score {validationScore}/100</span>}
       </div>
       <WorkflowTheater stage={theaterStage} subAgents={subAgents} />
@@ -406,6 +406,7 @@ function extractEmbeddedArtifact(code: string): string | null {
   };
 
   const candidates = [
+    readJsonStringVar('TRANSFORMED_OUTPUT'),
     readJsonStringVar('HTML_CONTENT'),
     readJsonStringVar('CONTENT'),
     readJsonStringVar('CSV_CONTENT'),
@@ -427,6 +428,22 @@ function extractEmbeddedArtifact(code: string): string | null {
   }
   const trimmed = longest.trim();
   return trimmed.length >= 20 ? trimmed : null;
+}
+
+/**
+ * Pull a hint about the original filename out of the generated agent so the
+ * Download button can offer a sensible name (e.g. `customers.csv` ->
+ * `customers.converted.json`). Falls back to a generic name.
+ */
+function extractInputFilename(code: string): string | null {
+  const m = code.match(/INPUT_FILENAME\s*=\s*("(?:[^"\\]|\\.)*")/);
+  if (!m) return null;
+  try {
+    const v = JSON.parse(m[1]);
+    return typeof v === 'string' ? v : null;
+  } catch {
+    return null;
+  }
 }
 
 function looksLikeHtml(text: string): boolean {
@@ -485,6 +502,7 @@ const DOMAIN_LABELS: Record<Domain, string> = {
 function ResultComplete({ tab, setTab, copied, onCopy, code, domain }: { tab: 'preview' | 'output' | 'explanation'; setTab: (t: 'preview' | 'output' | 'explanation') => void; copied: boolean; onCopy: () => void; code: string; domain: Domain | null }) {
   const artifact = useMemo(() => extractEmbeddedArtifact(code), [code]);
   const isHtml = useMemo(() => !!artifact && (domain === 'website_builder' || looksLikeHtml(artifact)), [artifact, domain]);
+  const inputFilename = useMemo(() => extractInputFilename(code), [code]);
   const display = code || '// Generated code will appear here once the run completes.';
   const previewLabel = domain ? DOMAIN_LABELS[domain] : 'Preview';
 
@@ -500,7 +518,13 @@ function ResultComplete({ tab, setTab, copied, onCopy, code, domain }: { tab: 'p
       </div>
 
       {tab === 'preview' && (
-        <ResultPreview artifact={artifact} isHtml={isHtml} label={previewLabel} />
+        <ResultPreview
+          artifact={artifact}
+          isHtml={isHtml}
+          label={previewLabel}
+          domain={domain}
+          inputFilename={inputFilename}
+        />
       )}
 
       {tab === 'output' && (
@@ -514,20 +538,13 @@ function ResultComplete({ tab, setTab, copied, onCopy, code, domain }: { tab: 'p
       )}
 
       {tab === 'explanation' && (
-        <div style={{ fontSize: 14, color: '#94A3B8', lineHeight: 1.7, fontFamily: 'Inter, sans-serif' }}>
-          <p style={{ marginBottom: 12 }}>The pipeline ran in <span style={{ color: '#A78BFA' }}>3 stages</span>:</p>
-          <ul style={{ paddingLeft: 18, color: '#94A3B8' }}>
-            <li><strong style={{ color: '#E2E8F0' }}>Planner</strong> rewrote the prompt and broke the task into an execution plan.</li>
-            <li><strong style={{ color: '#E2E8F0' }}>Builder</strong> ran sub-agents and assembled the final artifact.</li>
-            <li><strong style={{ color: '#E2E8F0' }}>Validator</strong> verified syntax, executed the output in a sandbox, and persisted the run.</li>
-          </ul>
-        </div>
+        <PipelineExplanation domain={domain} />
       )}
     </div>
   );
 }
 
-function ResultPreview({ artifact, isHtml, label }: { artifact: string | null; isHtml: boolean; label: string }) {
+function ResultPreview({ artifact, isHtml, label, domain, inputFilename }: { artifact: string | null; isHtml: boolean; label: string; domain: Domain | null; inputFilename: string | null }) {
   if (!artifact) {
     return (
       <div style={{ padding: '36px 20px', textAlign: 'center', color: '#94A3B8', fontSize: 14, lineHeight: 1.6 }}>
@@ -545,23 +562,203 @@ function ResultPreview({ artifact, isHtml, label }: { artifact: string | null; i
           title="generated-website-preview"
           srcDoc={wrapHtmlFragment(artifact)}
           sandbox="allow-same-origin"
-          style={{ width: '100%', height: 460, border: '1px solid rgba(26,39,64,0.6)', borderRadius: 10, background: '#ffffff', display: 'block' }}
+          style={{ width: '100%', height: 720, border: '1px solid rgba(26,39,64,0.6)', borderRadius: 10, background: '#ffffff', display: 'block' }}
         />
       </div>
     );
   }
 
-  // Document / web_research / data_transform: render as plain text in a
-  // monospace pane. We deliberately don't try to "render" markdown — the
-  // safe_injector text artifacts come back as plain bodies and look fine
-  // monospace-wrapped.
+  // data_transform: pretty-print JSON, offer a Download button. The artifact
+  // came out of TRANSFORMED_OUTPUT which the generated agent populated at
+  // build time (and again at runtime, but the build-time one is what's in
+  // generated_code).
+  if (domain === 'data_transform') {
+    return (
+      <DataTransformPreview json={artifact} inputFilename={inputFilename} label={label} />
+    );
+  }
+
+  // Document / web_research: render as plain text in a monospace pane.
   return (
     <div>
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.18em', color: '#475569', textTransform: 'uppercase', marginBottom: 10 }}>{label}</div>
-      <pre style={{ margin: 0, background: '#020608', borderRadius: 10, padding: 20, maxHeight: 460, overflow: 'auto', fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#E2E8F0', lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{artifact}</pre>
+      <pre style={{ margin: 0, background: '#020608', borderRadius: 10, padding: 20, maxHeight: 720, overflow: 'auto', fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#E2E8F0', lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{artifact}</pre>
     </div>
   );
 }
+
+function DataTransformPreview({ json, inputFilename, label }: { json: string; inputFilename: string | null; label: string }) {
+  const stats = useMemo(() => {
+    try {
+      const parsed = JSON.parse(json);
+      if (Array.isArray(parsed)) return { kind: 'array', count: parsed.length, sample: parsed[0] };
+      if (parsed && typeof parsed === 'object') return { kind: 'object', count: Object.keys(parsed).length };
+      return { kind: typeof parsed, count: 0 };
+    } catch {
+      return { kind: 'unknown', count: 0 };
+    }
+  }, [json]);
+
+  const downloadName = useMemo(() => {
+    if (!inputFilename) return 'converted.json';
+    const stem = inputFilename.replace(/\.[^.]+$/, '');
+    return `${stem || 'converted'}.converted.json`;
+  }, [inputFilename]);
+
+  const handleDownload = () => {
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = downloadName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.18em', color: '#475569', textTransform: 'uppercase' }}>{label}</div>
+        <span style={{ fontSize: 11, color: '#475569', fontFamily: 'JetBrains Mono, monospace' }}>
+          {stats.kind === 'array' ? `${stats.count} records` : stats.kind === 'object' ? `${stats.count} keys` : stats.kind}
+        </span>
+        <div style={{ flex: 1 }} />
+        <button
+          type="button"
+          onClick={handleDownload}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, background: 'linear-gradient(135deg, #7C3AED, #3B82F6)', border: 'none', color: 'white', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13, cursor: 'pointer', boxShadow: '0 0 20px rgba(124,58,237,0.35)' }}
+        >
+          ↓ Download {downloadName}
+        </button>
+      </div>
+      <pre style={{ margin: 0, background: '#020608', borderRadius: 10, padding: 20, maxHeight: 720, overflow: 'auto', fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#E2E8F0', lineHeight: 1.7, whiteSpace: 'pre', wordBreak: 'normal' }}>{json}</pre>
+    </div>
+  );
+}
+
+function PipelineExplanation({ domain }: { domain: Domain | null }) {
+  const domainLabel = domain ? DOMAIN_LABELS[domain] : 'artifact';
+  const stages: { title: string; tag: string; body: React.ReactNode; substeps?: string[] }[] = [
+    {
+      title: 'Prompt Optimizer',
+      tag: 'stage 1',
+      body: (
+        <>
+          Rewrites your raw input into a structured brief: extracts the goal, target audience, must-have sections,
+          tone, and any constraints. This step normalises wording so the planner sees the same shape regardless of how
+          you phrased the request.
+        </>
+      ),
+    },
+    {
+      title: 'Planner',
+      tag: 'stage 2',
+      body: (
+        <>
+          Classifies the domain (<code style={ex.code}>website_builder</code>, <code style={ex.code}>document</code>,
+          <code style={ex.code}>web_research</code>, or <code style={ex.code}>data_transform</code>) and emits an
+          execution plan. The plan lists between 2 and 7 role-named sub-agents (e.g. <em>Hero & Chrome</em>,
+          <em> Menu Section</em>, <em>CSS</em>) — one per section the brief implies, plus a mandatory CSS step for
+          website builds. The count scales to your prompt's complexity; it is not fixed.
+        </>
+      ),
+    },
+    {
+      title: 'Builder',
+      tag: 'stage 3',
+      body: (
+        <>
+          Runs the sub-agents through eight tightly sequenced phases. Each phase has its own gate — if a check fails,
+          the run halts with a precise error rather than producing a broken artifact.
+        </>
+      ),
+      substeps: [
+        'Spec Validation — confirms the planner output is a valid execution plan with all required fields.',
+        'Execution Planning — orders the sub-agents and resolves dependencies between sections.',
+        'Template Loading — pulls a matching skeleton from the Qdrant template store using semantic search.',
+        'Template Rendering — fills the skeleton placeholders with the planner\'s section briefs.',
+        'Code Injection — each sub-agent generates its slice (HTML / CSS / copy) and the injector splices it into the skeleton as a JSON-encoded variable.',
+        'Quality Validation — heuristics catch placeholder text, empty sections, and obvious LLM hallucinations.',
+        'Syntax Validation — parses the generated Python (and embedded HTML/CSS) to catch malformed output.',
+        'File Writing — persists the final artifact to disk under generated_agents/run_*.py.',
+      ],
+    },
+    {
+      title: 'Validator',
+      tag: 'stage 4',
+      body: (
+        <>
+          Imports the generated module, executes it inside a sandboxed Python interpreter, captures the rendered
+          {' '}{domainLabel.toLowerCase()}, and scores it 0–100 on completeness, structure, and stylistic correctness.
+          The score you see at the top of the page comes from here.
+        </>
+      ),
+    },
+    {
+      title: 'Persistence & Telemetry',
+      tag: 'after',
+      body: (
+        <>
+          The successful run is embedded and stored in the Qdrant <code style={ex.code}>run_store</code> collection
+          (so similar future prompts can reuse the result), token usage is debited from your credit ledger, and the
+          full event stream is checkpointed so you can resume or replay the run later.
+        </>
+      ),
+    },
+  ];
+
+  return (
+    <div style={ex.root}>
+      <p style={ex.lead}>
+        Every run flows through a LangGraph pipeline of five distinct stages. Each stage produces a typed artifact
+        that the next stage consumes, with an LLM call fronted by a provider fallback chain
+        (<strong style={ex.strong}>Gemini</strong> primary,
+        {' '}<strong style={ex.strong}>Groq</strong> fallback) so a single quota or outage never breaks the whole run.
+      </p>
+      <ol style={ex.timeline}>
+        {stages.map((st) => (
+          <li key={st.title} style={ex.item}>
+            <div style={ex.head}>
+              <span style={ex.title}>{st.title}</span>
+              <span style={ex.tag}>{st.tag}</span>
+            </div>
+            <div style={ex.body}>{st.body}</div>
+            {st.substeps && (
+              <ul style={ex.subList}>
+                {st.substeps.map((line) => {
+                  const [name, ...rest] = line.split(' — ');
+                  return (
+                    <li key={name} style={ex.subItem}>
+                      <strong style={ex.strong}>{name}</strong>
+                      {rest.length > 0 && <> — {rest.join(' — ')}</>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+const ex: Record<string, React.CSSProperties> = {
+  root: { fontSize: 14, color: '#94A3B8', lineHeight: 1.7, fontFamily: 'Inter, sans-serif' },
+  lead: { margin: '0 0 20px', color: '#CBD5E1' },
+  timeline: { listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 18 },
+  item: { position: 'relative', paddingLeft: 18, borderLeft: '2px solid rgba(124,58,237,0.35)' },
+  head: { display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 },
+  title: { color: '#E2E8F0', fontWeight: 700, fontSize: 15, letterSpacing: '0.01em' },
+  tag: { fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#A78BFA', background: 'rgba(124,58,237,0.12)', padding: '2px 8px', borderRadius: 100 },
+  body: { color: '#94A3B8' },
+  subList: { listStyle: 'disc', paddingLeft: 22, margin: '10px 0 0', color: '#94A3B8' },
+  subItem: { margin: '4px 0' },
+  strong: { color: '#E2E8F0', fontWeight: 600 },
+  code: { fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: '#67E8F9', background: 'rgba(103,232,249,0.08)', padding: '1px 6px', borderRadius: 4, margin: '0 1px' },
+};
 
 const s: Record<string, React.CSSProperties> = {
   root: { maxWidth: 1280, margin: '0 auto', padding: '32px 24px 80px', position: 'relative', zIndex: 1 },
@@ -569,7 +766,7 @@ const s: Record<string, React.CSSProperties> = {
   back: { background: 'transparent', border: '1px solid rgba(26,39,64,0.8)', color: '#94A3B8', padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontFamily: 'Inter, sans-serif' },
   runId: { fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#A78BFA', marginLeft: 8 },
   score: { marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: '#22C55E', padding: '4px 10px', borderRadius: 100, background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)' },
-  grid: { display: 'grid', gridTemplateColumns: '6fr 4fr', gap: 24, marginTop: 32, minHeight: 420 },
+  grid: { display: 'grid', gridTemplateColumns: '1fr', gap: 24, marginTop: 32 },
   terminal: { background: '#020608', border: '1px solid rgba(26,39,64,0.6)', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column' },
   terminalHeader: { height: 40, background: 'rgba(9,14,26,0.9)', display: 'flex', alignItems: 'center', padding: '0 14px', gap: 14, borderBottom: '1px solid rgba(26,39,64,0.6)' },
   terminalTitle: { fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: '#475569' },

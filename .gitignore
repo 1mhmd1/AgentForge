@@ -34,6 +34,13 @@ apps/ai/uploads/*
 !apps/ai/uploads/.gitkeep
 apps/ai/traces/
 apps/ai/__pycache__/
+# data_transform pipeline writes converted output here at validator-run time.
+# Path is hardcoded in safe_injector._build_data_agent_with_upload as
+# `output/{RUN_ID}_data_transform.json`. The validator runs the generated
+# agent from the project root, so this dir lands at repo root, not under
+# apps/ai/. Ignore both possible locations.
+output/
+apps/ai/output/
 
 # Backend build + runtime
 apps/backend/dist/
