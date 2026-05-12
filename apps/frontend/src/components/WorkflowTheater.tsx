@@ -1,4 +1,5 @@
 import React from 'react';
+import { useViewport } from '../hooks/useViewport';
 
 const STAGE_ORDER = ['planning', 'building', 'validating'];
 
@@ -10,8 +11,17 @@ interface WorkflowTheaterProps {
 }
 
 export default function WorkflowTheater({ stage, subAgents = [] }: WorkflowTheaterProps) {
+  // The 3-agent row sits at x: ±310. At narrow widths those positions clip
+  // out of view -- so we proportionally scale the whole scene down rather
+  // than re-architecting the coordinate system.
+  const { width } = useViewport();
+  // Design target: the scene reads correctly at 760+ wide. Below that we
+  // scale proportionally, capping at 0.5 (very narrow phones).
+  const sceneScale = width >= 760 ? 1 : Math.max(0.5, width / 760);
+  const rootHeight = Math.round(620 * Math.max(0.65, sceneScale));
+
   return (
-    <div style={ts.root}>
+    <div style={{ ...ts.root, height: rootHeight }}>
       <div style={ts.skyGlow} />
       <div style={ts.fogBottom} />
       <div style={ts.header}>
@@ -25,7 +35,7 @@ export default function WorkflowTheater({ stage, subAgents = [] }: WorkflowTheat
       </div>
 
       <div style={ts.scene}>
-        <div style={ts.world}>
+        <div style={{ ...ts.world, transform: `rotateX(26deg) scale(${sceneScale})` }}>
           <Floor />
           <EnergyBeam active={stage === 'building' || STAGE_ORDER.indexOf(stage) > 1 || stage === 'completed'} from="planner" to="builder" color="#7C3AED" />
           <EnergyBeam active={stage === 'validating' || stage === 'completed'} from="builder" to="validator" color="#3B82F6" />
@@ -43,6 +53,9 @@ export default function WorkflowTheater({ stage, subAgents = [] }: WorkflowTheat
 
 function InspectionBeam({ active, subAgentCount }: { active: boolean; subAgentCount: number }) {
   if (!active || !subAgentCount) return null;
+  // Beam goes from the Validator (upper-right) DOWN and IN to land between
+  // Builder's legs (page-center, y just above the sub-agent fan origin).
+  const beamPath = 'M 320 30 Q 200 80 10 130';
   return (
     <svg
       style={{
@@ -66,7 +79,7 @@ function InspectionBeam({ active, subAgentCount }: { active: boolean; subAgentCo
         </linearGradient>
       </defs>
       <path
-        d="M 320 30 Q 200 90 10 160"
+        d={beamPath}
         fill="none"
         stroke="url(#inspectGrad)"
         strokeWidth="2"
@@ -76,7 +89,7 @@ function InspectionBeam({ active, subAgentCount }: { active: boolean; subAgentCo
       />
       {[0, 1, 2].map((i) => (
         <circle key={i} r="3.5" fill="#86EFAC" style={{ filter: 'drop-shadow(0 0 8px #22C55E)' }}>
-          <animateMotion dur="1.8s" repeatCount="indefinite" begin={`${i * 0.5}s`} path="M 320 30 Q 200 90 10 160" />
+          <animateMotion dur="1.8s" repeatCount="indefinite" begin={`${i * 0.5}s`} path={beamPath} />
         </circle>
       ))}
     </svg>
@@ -86,7 +99,9 @@ function InspectionBeam({ active, subAgentCount }: { active: boolean; subAgentCo
 function SubAgentRow({ subAgents }: { subAgents: SubAgent[] }) {
   if (!subAgents.length) return null;
   const n = subAgents.length;
-  const spacing = n > 8 ? 80 : 100;
+  // Role names (e.g. "Complete Responsive Css") are wide; give each agent
+  // enough horizontal slot to render the label without colliding.
+  const spacing = n > 8 ? 120 : n > 5 ? 150 : 170;
   const rowWidth = Math.max((n - 1) * spacing, spacing);
   const fanHeight = 175;
 
@@ -113,7 +128,11 @@ function SubAgentRow({ subAgents }: { subAgents: SubAgent[] }) {
         {subAgents.map((sub, i) => {
           const x = (i - (n - 1) / 2) * spacing;
           const color = sub.done ? '#22C55E' : '#06B6D4';
-          const cx = x * 0.5;
+          // Without an offset, the middle agent's control point lands on the
+          // line between (0,0) and (0, fanHeight), collapsing the Bezier to a
+          // straight vertical that visually merges with the floor's center
+          // axis. A small horizontal offset gives it a visible arc.
+          const cx = x === 0 ? 16 : x * 0.5;
           const cy = fanHeight * 0.55;
           return (
             <g key={sub.id}>

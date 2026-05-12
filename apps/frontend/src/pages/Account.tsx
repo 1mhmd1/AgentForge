@@ -1,95 +1,163 @@
-import React, { useState, useEffect } from 'react';
-
-const ACTIVITY = [
-  { id: 1, text: 'Run completed', detail: 'Web Research · 5.3s', time: '2 min ago', tint: '#22C55E' },
-  { id: 2, text: 'API key generated', detail: 'production-key-04', time: '1 hr ago', tint: '#06B6D4' },
-  { id: 3, text: 'Run failed', detail: 'Website Builder · timeout', time: '3 hr ago', tint: '#EF4444' },
-  { id: 4, text: 'Plan upgraded', detail: 'Free → Pro', time: 'Yesterday', tint: '#7C3AED' },
-  { id: 5, text: 'Run completed', detail: 'Data Transform · 3.1s', time: 'Yesterday', tint: '#22C55E' },
-];
+import React, { useEffect, useState } from 'react';
+import { useAuth } from '../auth/AuthContext';
+import { listRuns, RunSummary } from '../api/runs';
+import { toApiError } from '../api/client';
+import { useViewport } from '../hooks/useViewport';
 
 export default function Account() {
-  const [meterFill, setMeterFill] = useState(0);
-  useEffect(() => { const t = setTimeout(() => setMeterFill(74.2), 200); return () => clearTimeout(t); }, []);
+  const { user, logout } = useAuth();
+  const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { isMobile, isTablet } = useViewport();
+
+  useEffect(() => {
+    let cancelled = false;
+    listRuns({ page: 1, perPage: 10 })
+      .then((res) => {
+        if (cancelled) return;
+        setRuns(res.items ?? []);
+        setTotal(res.total ?? 0);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(toApiError(err).message);
+        setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const displayName = user?.name || user?.email?.split('@')[0] || 'You';
+  const displayEmail = user?.email || '';
+  const initials =
+    displayName
+      .split(/[\s.]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? '')
+      .join('') || 'U';
+
+  const completed = runs.filter((r) => r.status === 'COMPLETED').length;
+  const failed = runs.filter((r) => r.status === 'FAILED' || r.status === 'INTERRUPTED').length;
+  const successRate = runs.length > 0 ? (completed / runs.length) * 100 : 0;
+
+  // Responsive overrides for the page's rigid grids. Composed onto the base
+  // style objects via spread so the desktop layout is preserved when these
+  // booleans are false.
+  const titleSize = isMobile ? 26 : isTablet ? 34 : 44;
+  const rootPadding = isMobile ? '32px 12px 72px' : isTablet ? '48px 20px 100px' : '64px 32px 100px';
+  const mainGridCols = isTablet ? '1fr' : 'repeat(2, 1fr)';
+  const statGridCols = isMobile ? 'repeat(2, 1fr)' : isTablet ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)';
+  const fieldRowDir: React.CSSProperties['flexDirection'] = isMobile ? 'column' : 'row';
+  const headerRowDir: React.CSSProperties['flexDirection'] = isMobile ? 'column' : 'row';
+  const headerRowAlign = isMobile ? 'flex-start' : 'flex-end';
+  const cardPadding = isMobile ? 18 : 28;
 
   return (
-    <div style={s.root}>
-      <div style={s.headerRow}>
+    <div data-responsive-root style={{ ...s.root, padding: rootPadding }}>
+      <div style={{ ...s.headerRow, flexDirection: headerRowDir, alignItems: headerRowAlign }}>
         <div>
           <div style={{ ...s.eyebrow, animation: 'fadeUp 500ms var(--ease-spring) both' }}>ACCOUNT</div>
-          <h1 style={{ ...s.title, animation: 'fadeUp 600ms var(--ease-spring) 80ms both' }}>
+          <h1 style={{ ...s.title, fontSize: titleSize, animation: 'fadeUp 600ms var(--ease-spring) 80ms both' }}>
             Your <span style={s.gradient}>workspace</span>
           </h1>
         </div>
         <div style={{ ...s.planBadge, animation: 'fadeUp 600ms var(--ease-spring) 200ms both' }}>
           <span style={s.planDot} />
-          <span style={{ color: '#94A3B8', fontSize: 11, letterSpacing: '0.15em', fontWeight: 600 }}>CURRENT PLAN</span>
-          <span style={s.planName}>Pro</span>
+          <span style={{ color: '#94A3B8', fontSize: 11, letterSpacing: '0.15em', fontWeight: 600 }}>ROLE</span>
+          <span style={s.planName}>{user?.role ?? 'USER'}</span>
         </div>
       </div>
 
-      <div style={s.grid}>
-        <section style={{ ...s.card, animation: 'cardEntry 700ms var(--ease-spring) 300ms both' }}>
+      <div style={{ ...s.grid, gridTemplateColumns: mainGridCols }}>
+        <section style={{ ...s.card, padding: cardPadding, animation: 'cardEntry 700ms var(--ease-spring) 300ms both' }}>
           <SectionTitle>Profile</SectionTitle>
-          <div style={s.avatarRow}>
-            <div style={s.avatar}><span>EJ</span><span style={s.avatarRing} /></div>
+          <div style={{ ...s.avatarRow, flexWrap: 'wrap' }}>
+            <div style={s.avatar}><span>{initials}</span><span style={s.avatarRing} /></div>
             <div>
-              <div style={{ fontSize: 18, fontWeight: 600, color: '#E2E8F0', fontFamily: 'Inter, sans-serif' }}>Elena Jansen</div>
-              <div style={{ fontSize: 13, color: '#94A3B8' }}>elena@blackforge.io</div>
+              <div style={{ fontSize: 18, fontWeight: 600, color: '#E2E8F0', fontFamily: 'Inter, sans-serif' }}>{displayName}</div>
+              <div style={{ fontSize: 13, color: '#94A3B8' }}>{displayEmail}</div>
             </div>
           </div>
-          <div style={s.fieldRow}><Field label="Workspace" value="BlackForge Labs" /><Field label="Role" value="Owner" /></div>
-          <div style={s.fieldRow}><Field label="Joined" value="Jan 15, 2025" /><Field label="Region" value="us-west-2" /></div>
-          <div style={s.actionRow}><Btn>Edit profile</Btn><Btn>Manage API keys</Btn></div>
-        </section>
-
-        <section style={{ ...s.card, animation: 'cardEntry 700ms var(--ease-spring) 400ms both' }}>
-          <SectionTitle>Usage this month</SectionTitle>
-          <div style={s.usageRow}>
-            <span style={{ fontSize: 13, color: '#94A3B8' }}>Runs</span>
-            <span style={{ fontSize: 18, fontFamily: 'JetBrains Mono, monospace' }}>
-              <span style={{ color: '#E2E8F0', fontWeight: 700 }}>742</span>
-              <span style={{ color: '#475569' }}> / 1,000</span>
-            </span>
+          <div style={{ ...s.fieldRow, flexDirection: fieldRowDir }}>
+            <Field label="Role" value={user?.role ?? 'USER'} />
+            <Field label="User ID" value={user?.id ? user.id.slice(0, 12) : '—'} />
           </div>
-          <div style={s.meter}>
-            <div style={{ ...s.meterFill, width: `${meterFill}%`, transition: 'width 1.6s cubic-bezier(0.16, 1, 0.3, 1)' }}>
-              <div style={s.meterShine} />
-            </div>
-            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-              {[0, 25, 50, 75, 100].map((t) => (
-                <div key={t} style={{ position: 'absolute', left: `${t}%`, top: 0, bottom: 0, width: 1, background: 'rgba(26,39,64,0.6)' }} />
-              ))}
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10 }}>
-            <span style={{ color: '#475569', fontSize: 12 }}>Resets in 18 days</span>
-            <span style={{ color: '#22C55E', fontSize: 12, fontWeight: 600, fontFamily: 'JetBrains Mono, monospace' }}>74.2%</span>
-          </div>
-          <div style={s.statGrid}>
-            <Stat label="Avg duration" value="4.2s" tint="#06B6D4" />
-            <Stat label="Success rate" value="98.4%" tint="#22C55E" />
-            <Stat label="Active agents" value="4" tint="#7C3AED" />
-            <Stat label="API calls" value="1.2k" tint="#3B82F6" />
-          </div>
-          <div style={{ ...s.actionRow, marginTop: 24 }}>
-            <PriBtn>Manage subscription</PriBtn>
-            <Btn>View invoices</Btn>
+          <div style={s.actionRow}>
+            <Btn onClick={() => { logout().catch(() => { /* ignore */ }); }}>Sign out</Btn>
           </div>
         </section>
 
-        <section style={{ ...s.card, gridColumn: '1 / -1', animation: 'cardEntry 700ms var(--ease-spring) 500ms both' }}>
-          <SectionTitle>Recent activity</SectionTitle>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {ACTIVITY.map((a, i) => (
-              <div key={a.id} style={{ display: 'grid', gridTemplateColumns: '24px 1fr auto auto', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 10, background: 'rgba(9,14,26,0.5)', border: '1px solid rgba(26,39,64,0.4)', animation: `fadeUp 400ms ease ${i * 60}ms both` }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: a.tint, boxShadow: `0 0 8px ${a.tint}99` }} />
-                <span style={{ fontSize: 14, color: '#E2E8F0', fontFamily: 'Inter, sans-serif' }}>{a.text}</span>
-                <span style={{ fontSize: 12, color: '#94A3B8', fontFamily: 'JetBrains Mono, monospace' }}>{a.detail}</span>
-                <span style={{ fontSize: 11, color: '#475569', fontFamily: 'JetBrains Mono, monospace' }}>{a.time}</span>
+        <section style={{ ...s.card, padding: cardPadding, animation: 'cardEntry 700ms var(--ease-spring) 400ms both' }}>
+          <SectionTitle>Your runs</SectionTitle>
+          {loading ? (
+            <Skeleton />
+          ) : error ? (
+            <div style={s.errorBanner}>{error}</div>
+          ) : total === 0 ? (
+            <div style={{ padding: '20px 0', color: '#94A3B8', fontSize: 14 }}>
+              You haven&apos;t kicked off any runs yet. Head back home to start one.
+            </div>
+          ) : (
+            <>
+              <div style={s.usageRow}>
+                <span style={{ fontSize: 13, color: '#94A3B8' }}>Total runs</span>
+                <span style={{ fontSize: 18, fontFamily: 'JetBrains Mono, monospace', color: '#E2E8F0', fontWeight: 700 }}>
+                  {total.toLocaleString('en-US')}
+                </span>
               </div>
-            ))}
-          </div>
+              <div style={{ ...s.statGrid, gridTemplateColumns: statGridCols }}>
+                <Stat label="Completed (recent)" value={String(completed)} tint="#22C55E" />
+                <Stat label="Failed (recent)" value={String(failed)} tint="#EF4444" />
+                <Stat label="Success rate" value={`${successRate.toFixed(1)}%`} tint={successRate >= 80 ? '#22C55E' : '#F59E0B'} />
+                <Stat label="Recent window" value={String(runs.length)} tint="#06B6D4" />
+              </div>
+            </>
+          )}
+        </section>
+
+        <section style={{ ...s.card, padding: cardPadding, gridColumn: '1 / -1', animation: 'cardEntry 700ms var(--ease-spring) 500ms both' }}>
+          <SectionTitle>Recent activity</SectionTitle>
+          {loading ? (
+            <Skeleton rows={4} />
+          ) : error ? (
+            <div style={s.errorBanner}>{error}</div>
+          ) : runs.length === 0 ? (
+            <div style={{ padding: '20px 0', color: '#94A3B8', fontSize: 14 }}>No activity yet.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {runs.map((r, i) => {
+                const tint = statusTint(r.status);
+                if (isMobile) {
+                  // Mobile: dot + prompt on top row, status + time on bottom row.
+                  // Keeps the prompt readable without truncation pressure from
+                  // the two metadata cells crowding it on a narrow viewport.
+                  return (
+                    <div key={r.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 14px', borderRadius: 10, background: 'rgba(9,14,26,0.5)', border: '1px solid rgba(26,39,64,0.4)', animation: `fadeUp 400ms ease ${i * 40}ms both` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: tint, boxShadow: `0 0 8px ${tint}99`, flex: '0 0 8px' }} />
+                        <span style={{ fontSize: 13, color: '#E2E8F0', fontFamily: 'Inter, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{r.prompt}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: 18, fontFamily: 'JetBrains Mono, monospace' }}>
+                        <span style={{ fontSize: 11, color: '#94A3B8' }}>{r.status}</span>
+                        <span style={{ fontSize: 11, color: '#475569' }}>{formatWhen(r.createdAt)}</span>
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '24px 1fr auto auto', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 10, background: 'rgba(9,14,26,0.5)', border: '1px solid rgba(26,39,64,0.4)', animation: `fadeUp 400ms ease ${i * 40}ms both` }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: tint, boxShadow: `0 0 8px ${tint}99` }} />
+                    <span style={{ fontSize: 14, color: '#E2E8F0', fontFamily: 'Inter, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.prompt}</span>
+                    <span style={{ fontSize: 12, color: '#94A3B8', fontFamily: 'JetBrains Mono, monospace' }}>{r.status}</span>
+                    <span style={{ fontSize: 11, color: '#475569', fontFamily: 'JetBrains Mono, monospace' }}>{formatWhen(r.createdAt)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       </div>
     </div>
@@ -118,19 +186,44 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.18em', color: '#475569', textTransform: 'uppercase', margin: '0 0 24px', fontFamily: 'Inter, sans-serif' }}>{children}</h2>;
 }
 
-function PriBtn({ children }: { children: React.ReactNode }) {
+function Btn({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
   const [hover, setHover] = useState(false);
-  return <button onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ padding: '10px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: 'white', background: 'linear-gradient(135deg, #7C3AED, #3B82F6)', boxShadow: hover ? '0 0 24px rgba(124,58,237,0.5)' : '0 0 12px rgba(124,58,237,0.25)', transform: hover ? 'scale(1.03)' : 'scale(1)', transition: 'all 200ms cubic-bezier(0.34, 1.56, 0.64, 1)' }}>{children}</button>;
+  return <button type="button" onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 500, background: hover ? 'rgba(124,58,237,0.08)' : 'transparent', border: `1px solid ${hover ? 'rgba(124,58,237,0.4)' : 'rgba(26,39,64,0.8)'}`, color: hover ? '#E2E8F0' : '#94A3B8', transition: 'all 200ms ease' }}>{children}</button>;
 }
 
-function Btn({ children }: { children: React.ReactNode }) {
-  const [hover, setHover] = useState(false);
-  return <button onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 500, background: hover ? 'rgba(124,58,237,0.08)' : 'transparent', border: `1px solid ${hover ? 'rgba(124,58,237,0.4)' : 'rgba(26,39,64,0.8)'}`, color: hover ? '#E2E8F0' : '#94A3B8', transition: 'all 200ms ease' }}>{children}</button>;
+function Skeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8 }}>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} style={{ height: 36, borderRadius: 10, background: 'linear-gradient(90deg, rgba(26,39,64,0.3), rgba(26,39,64,0.6), rgba(26,39,64,0.3))', backgroundSize: '200% 100%', animation: 'shimmer 1.5s linear infinite' }} />
+      ))}
+    </div>
+  );
+}
+
+function statusTint(status: string): string {
+  if (status === 'COMPLETED') return '#22C55E';
+  if (status === 'FAILED' || status === 'INTERRUPTED') return '#EF4444';
+  if (status === 'CANCELLED') return '#94A3B8';
+  return '#3B82F6';
+}
+
+function formatWhen(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return iso;
+  const diff = Date.now() - t;
+  const m = Math.floor(diff / 60_000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} hr ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
 }
 
 const s: Record<string, React.CSSProperties> = {
   root: { maxWidth: 1080, margin: '0 auto', padding: '64px 32px 100px', position: 'relative', zIndex: 1 },
-  headerRow: { display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 48, gap: 24, flexWrap: 'wrap' },
+  headerRow: { display: 'flex', justifyContent: 'space-between', marginBottom: 40, gap: 20, flexWrap: 'wrap' },
   eyebrow: { display: 'inline-block', fontSize: 11, fontWeight: 600, letterSpacing: '0.18em', color: '#A78BFA', marginBottom: 12 },
   title: { fontSize: 44, fontWeight: 800, letterSpacing: '-0.04em', lineHeight: 1.1, color: '#E2E8F0', margin: 0 },
   gradient: { background: 'linear-gradient(135deg, #7C3AED, #3B82F6, #06B6D4)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' },
@@ -145,8 +238,6 @@ const s: Record<string, React.CSSProperties> = {
   fieldRow: { display: 'flex', gap: 24, marginBottom: 20 },
   actionRow: { display: 'flex', gap: 10, marginTop: 28, flexWrap: 'wrap' },
   usageRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 },
-  meter: { position: 'relative', height: 12, background: 'rgba(9,14,26,0.9)', borderRadius: 100, overflow: 'hidden', border: '1px solid rgba(26,39,64,0.6)' },
-  meterFill: { position: 'relative', height: '100%', background: 'linear-gradient(90deg, #7C3AED, #3B82F6, #06B6D4)', borderRadius: 100, boxShadow: '0 0 20px rgba(124,58,237,0.6), inset 0 1px 0 rgba(255,255,255,0.3)' },
-  meterShine: { position: 'absolute', inset: 0, background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)', backgroundSize: '50% 100%', backgroundRepeat: 'no-repeat', animation: 'meterShine 2.4s ease-in-out infinite' },
   statGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 28 },
+  errorBanner: { padding: '14px 18px', borderRadius: 10, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.4)', color: '#FCA5A5', fontSize: 13 },
 };

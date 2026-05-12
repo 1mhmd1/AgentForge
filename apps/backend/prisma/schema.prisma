@@ -1,0 +1,602 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────
+model User {
+  id     String     @id @default(cuid())
+  email  String     @unique
+  name   String?
+  avatar String?
+  role   Role       @default(USER)
+  status UserStatus @default(ACTIVE)
+
+  isActive    Boolean @default(true)
+  isSuspended Boolean @default(false)
+
+  passwordHash String?
+  googleId     String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  sessions        Session[]
+  subscriptions   Subscription[]
+  runs            Run[]
+  templates       Template[]
+  apiKeys         ApiKey[]
+  attachments     Attachment[]
+  creditEntries   CreditEntry[]
+  userPlan        UserPlan?
+  memoryPoints    MemoryPoint[]
+  refreshTokens   RefreshToken[]
+  auditLogs       AuditLog[]
+  adminActions    AdminAction[]  @relation("AdminActionAdmin")
+  targetedActions AdminAction[]  @relation("AdminActionTarget")
+  usageLogs       UsageLog[]
+
+  @@index([status])
+  @@index([role])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────
+// REFRESH TOKEN (rotation)
+// ─────────────────────────────────────────
+model RefreshToken {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hashedToken String    @unique
+  parentId    String? // last rotated-from token, helps detect token reuse
+  revokedAt   DateTime?
+  expiresAt   DateTime
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ─────────────────────────────────────────
+// SESSION (workspace grouping — optional)
+// ─────────────────────────────────────────
+model Session {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title      String?
+  isArchived Boolean @default(false)
+
+  previousSessionId String?  @unique
+  previousSession   Session? @relation("SessionContinuation", fields: [previousSessionId], references: [id])
+  continuedBy       Session? @relation("SessionContinuation")
+
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  runs Run[]
+
+  @@index([userId])
+  @@index([isArchived])
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────
+// RUN
+// ─────────────────────────────────────────
+model Run {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Optional workspace grouping (legacy/UX feature, not on the AI path).
+  sessionId String?
+  session   Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  // Server-side id from the Python AI service ("ui_xxxxxxxx").
+  aiRunId String? @unique
+
+  prompt String
+  domain Domain
+  status RunStatus @default(STARTED)
+
+  // Last `stage` event emitted (e.g. "PROMPT_OPTIMIZER", "Code Injection").
+  // Free-form because the AI service emits both top-level pipeline phases
+  // (uppercase) and builder sub-phases (mixed-case).
+  currentStage String?
+
+  errorStage String?
+  finalError String?
+
+  validationStatus String? // 'passed' | 'failed'
+  validationScore  Int?
+
+  totalTokens      Int @default(0)
+  promptTokens     Int @default(0)
+  completionTokens Int @default(0)
+
+  buildDurationSec Float?
+  durationMs       Int?
+
+  spec             Json?
+  runAudit         Json?
+  validationReport Json?
+
+  generatedCode String?
+  outputPath    String?
+
+  templateId String?
+  template   Template? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  // Idempotency: same key from same user within 24h returns the existing run.
+  idempotencyKey String?
+
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+  interruptedAt DateTime?
+  deletedAt     DateTime?
+
+  attachments   AttachmentRef[]
+  creditEntries CreditEntry[]
+  agentRun      AgentRun?
+  usageLogs     UsageLog[]
+  memoryPoints  MemoryPoint[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, status])
+  @@index([userId, domain])
+  @@index([sessionId])
+  @@index([deletedAt])
+  @@map("runs")
+}
+
+// ─────────────────────────────────────────
+// AGENT RUN (legacy / per-agent execution detail)
+// ─────────────────────────────────────────
+model AgentRun {
+  id    String @id @default(cuid())
+  runId String @unique
+  run   Run    @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  domain Domain
+  status AgentRunStatus @default(RUNNING)
+
+  spec   Json?
+  result Json?
+
+  semanticScore   Float?
+  validationScore Float?
+  isValid         Boolean?
+
+  templateId   String?
+  template     Template? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  templateUsed String?
+
+  sandboxOutput  Json?
+  error          String?
+  repairAttempts Int     @default(0)
+
+  logs     Json?
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([runId])
+  @@index([domain])
+  @@index([status])
+  @@map("agent_runs")
+}
+
+// ─────────────────────────────────────────
+// ATTACHMENT
+// ─────────────────────────────────────────
+model Attachment {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  filename    String
+  mimetype    String
+  sizeBytes   Int
+  storagePath String
+  // Plain-text extraction (truncated to MAX_EXTRACT_CHARS) used when injecting
+  // attachment context into the prompt.
+  extracted   String?
+
+  createdAt DateTime @default(now())
+
+  refs AttachmentRef[]
+
+  @@index([userId])
+  @@map("attachments")
+}
+
+model AttachmentRef {
+  runId        String
+  attachmentId String
+  run          Run        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  attachment   Attachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@id([runId, attachmentId])
+  @@index([attachmentId])
+  @@map("attachment_refs")
+}
+
+// ─────────────────────────────────────────
+// TEMPLATE
+// ─────────────────────────────────────────
+model Template {
+  id     String  @id @default(cuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  name          String
+  description   String?
+  domain        Domain
+  spec          Json
+  defaultPrompt String
+
+  // Pointer into Qdrant (templates can be searched semantically).
+  embeddingId String?
+
+  isPublic Boolean        @default(false)
+  status   TemplateStatus @default(PENDING)
+
+  forkedFromId String?
+  forkedFrom   Template?  @relation("TemplateForks", fields: [forkedFromId], references: [id], onDelete: SetNull)
+  forks        Template[] @relation("TemplateForks")
+
+  usageCount  Int   @default(0)
+  successRate Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  runs      Run[]
+  agentRuns AgentRun[]
+
+  @@index([userId])
+  @@index([domain])
+  @@index([isPublic])
+  @@map("templates")
+}
+
+// ─────────────────────────────────────────
+// PLAN + USERPLAN
+// ─────────────────────────────────────────
+model Plan {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  tier        PlanTier @default(FREE)
+  description String?
+
+  monthlyCredits    Int          @default(0)
+  maxConcurrentRuns Int          @default(1)
+  maxStoredMB       Int          @default(50)
+  maxRunsPerDay     Int          @default(20)
+  priceUSDCents     Int          @default(0)
+  interval          PlanInterval @default(MONTHLY)
+  currency          String       @default("USD")
+  features          Json
+
+  // Capability flags
+  priorityLevel         Int     @default(0)
+  canUseCustomTemplates Boolean @default(false)
+  canUseApi             Boolean @default(false)
+
+  active    Boolean   @default(true)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  subscriptions Subscription[]
+  userPlans     UserPlan[]
+
+  @@index([tier])
+  @@index([active])
+  @@map("plans")
+}
+
+model UserPlan {
+  userId      String    @id
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId      String
+  plan        Plan      @relation(fields: [planId], references: [id], onDelete: Restrict)
+  startedAt   DateTime  @default(now())
+  renewsAt    DateTime
+  cancelledAt DateTime?
+
+  @@index([planId])
+  @@map("user_plans")
+}
+
+// ─────────────────────────────────────────
+// SUBSCRIPTION (Stripe integration record)
+// ─────────────────────────────────────────
+model Subscription {
+  id         String             @id @default(cuid())
+  userId     String
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId     String
+  plan       Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+  status     SubscriptionStatus @default(PENDING)
+  startedAt  DateTime           @default(now())
+  expiresAt  DateTime
+  canceledAt DateTime?
+
+  stripeCustomerId     String?
+  stripeSubscriptionId String? @unique
+  stripePriceId        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([planId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+// ─────────────────────────────────────────
+// CREDIT LEDGER
+// ─────────────────────────────────────────
+model CreditEntry {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Int // signed: + topup/grant, - usage
+  reason    CreditReason
+  runId     String?
+  run       Run?         @relation(fields: [runId], references: [id], onDelete: SetNull)
+  metadata  Json?
+  createdAt DateTime     @default(now())
+
+  // A run can only be debited ONCE per (reason). Prevents double-charging if
+  // the SSE pipeline re-emits a terminal event or if markSuccess is retried.
+  @@unique([runId, reason], name: "uniq_credit_per_run_reason")
+  @@index([userId, createdAt])
+  @@index([runId])
+  @@map("credit_entries")
+}
+
+// ─────────────────────────────────────────
+// USAGE LOG (per-event analytics view; complements the credit ledger)
+// ─────────────────────────────────────────
+model UsageLog {
+  id     String  @id @default(cuid())
+  userId String
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runId  String?
+  run    Run?    @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  type            UsageType
+  tokensInput     Int       @default(0)
+  tokensOutput    Int       @default(0)
+  durationMs      Int       @default(0)
+  filesGenerated  Int       @default(0)
+  storageBytes    Int       @default(0)
+  creditsConsumed Int       @default(0)
+  metadata        Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([runId])
+  @@index([type])
+  @@map("usage_logs")
+}
+
+// ─────────────────────────────────────────
+// AUDIT LOG (cross-cutting, written by AuditService)
+// ─────────────────────────────────────────
+model AuditLog {
+  id     String  @id @default(cuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action     String
+  resource   String?
+  resourceId String?
+  ip         String?
+  userAgent  String?
+  success    Boolean @default(true)
+  metadata   Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([resource])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────
+// ADMIN ACTION (immutable record of admin mutations)
+// ─────────────────────────────────────────
+model AdminAction {
+  id           String          @id @default(cuid())
+  adminId      String
+  admin        User            @relation("AdminActionAdmin", fields: [adminId], references: [id], onDelete: Cascade)
+  targetUserId String?
+  targetUser   User?           @relation("AdminActionTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  type         AdminActionType
+  reason       String?
+  metadata     Json?
+  createdAt    DateTime        @default(now())
+
+  @@index([adminId])
+  @@index([targetUserId])
+  @@index([type])
+  @@map("admin_actions")
+}
+
+// ─────────────────────────────────────────
+// API KEY
+// ─────────────────────────────────────────
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  prefix     String    @unique
+  hash       String
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([revokedAt])
+  @@index([expiresAt])
+  @@map("api_keys")
+}
+
+// ─────────────────────────────────────────
+// MEMORY POINT (Qdrant pointer)
+// ─────────────────────────────────────────
+model MemoryPoint {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Logical kind of memory: PROMPT, RUN_SUMMARY, TEMPLATE
+  kind  MemoryKind
+  runId String?
+  run   Run?       @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  // Qdrant collection + point id (filled in once embedding succeeds).
+  collection String
+  vectorId   String
+
+  preview   String? // short text for display
+  createdAt DateTime @default(now())
+
+  @@unique([collection, vectorId])
+  @@index([userId, kind])
+  @@index([runId])
+  @@map("memory_points")
+}
+
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  USER
+}
+
+// Domain values match the strings the AI service emits — DO NOT change casing.
+enum Domain {
+  website_builder
+  document
+  web_research
+  data_transform
+}
+
+enum RunStatus {
+  STARTED
+  PLANNING
+  BUILDING
+  VALIDATING
+  COMPLETED
+  FAILED
+  INTERRUPTED
+  CANCELLED
+}
+
+enum AgentRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  CANCELED
+  EXPIRED
+  PAST_DUE
+}
+
+enum PlanInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum PlanTier {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum TemplateStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+enum UsageType {
+  RUN
+  TOKENS
+  STORAGE
+  API_CALL
+}
+
+enum AdminActionType {
+  USER_SUSPEND
+  USER_UNSUSPEND
+  USER_DELETE
+  USER_PLAN_CHANGE
+  USER_ROLE_CHANGE
+  RUN_CANCEL
+  TEMPLATE_APPROVE
+  TEMPLATE_REJECT
+  TEMPLATE_DELETE
+  CREDITS_GRANT
+}
+
+enum CreditReason {
+  TOPUP
+  ADMIN_GRANT
+  PLAN_RENEWAL
+  LLM_USAGE
+  STORAGE
+  REFUND
+}
+
+enum MemoryKind {
+  PROMPT
+  RUN_SUMMARY
+  TEMPLATE
+}

@@ -1,15 +1,27 @@
 import React, { useState } from 'react';
 import { CheckIcon } from '../components/Icons';
 
-const plans = [
-  { name: 'Free', price: '$0', runs: '100', tagline: 'For exploring what AgentForge can do.', features: ['Basic agents (Web Research, Data Transform)', 'Standard execution speed', 'Community support', '7-day run history'], cta: 'Start Free', accent: '#3B82F6' },
-  { name: 'Pro', price: '$29', runs: '1,000', tagline: 'For builders shipping real automations.', features: ['All 4 production agents', '4× faster execution', 'Priority support', 'API access', '90-day run history', 'Custom agent presets'], cta: 'Upgrade to Pro', accent: '#7C3AED', recommended: true },
-  { name: 'Pro Max', price: '$99', runs: 'Unlimited', tagline: 'For teams running mission-critical workflows.', features: ['Everything in Pro', 'Unlimited concurrent runs', 'Custom agent development', 'Dedicated Slack channel', '99.9% SLA', 'SSO + audit logs'], cta: 'Contact Sales', accent: '#06B6D4' },
+interface Plan {
+  name: string;
+  price: string;
+  runs: string;
+  tagline: string;
+  features: string[];
+  cta: string;
+  accent: string;
+  recommended?: boolean;
+  ctaHref: string;
+}
+
+const plans: Plan[] = [
+  { name: 'Free', price: '$0', runs: '100', tagline: 'For exploring what AgentForge can do.', features: ['Basic agents (Web Research, Data Transform)', 'Standard execution speed', 'Community support', '7-day run history'], cta: 'Start Free', accent: '#3B82F6', ctaHref: 'mailto:hello@agentforge.io?subject=Getting%20started%20on%20Free' },
+  { name: 'Pro', price: '$29', runs: '1,000', tagline: 'For builders shipping real automations.', features: ['All 4 production agents', '4× faster execution', 'Priority support', 'API access', '90-day run history', 'Custom agent presets'], cta: 'Upgrade to Pro', accent: '#7C3AED', recommended: true, ctaHref: 'mailto:billing@agentforge.io?subject=Upgrade%20to%20Pro' },
+  { name: 'Pro Max', price: '$99', runs: 'Unlimited', tagline: 'For teams running mission-critical workflows.', features: ['Everything in Pro', 'Unlimited concurrent runs', 'Custom agent development', 'Dedicated Slack channel', '99.9% SLA', 'SSO + audit logs'], cta: 'Contact Sales', accent: '#06B6D4', ctaHref: 'mailto:sales@agentforge.io?subject=Pro%20Max%20enquiry' },
 ];
 
 export default function Pricing() {
   return (
-    <div style={s.root}>
+    <div data-responsive-root style={s.root}>
       <div style={s.heading}>
         <div style={{ ...s.eyebrow, animation: 'fadeUp 600ms var(--ease-spring) both' }}>PRICING</div>
         <h1 style={{ ...s.title, animation: 'fadeUp 700ms var(--ease-spring) 100ms both' }}>
@@ -33,9 +45,9 @@ export default function Pricing() {
   );
 }
 
-function PricingCard({ plan, index }: { plan: typeof plans[0]; index: number }) {
+function PricingCard({ plan, index }: { plan: Plan; index: number }) {
   const [hover, setHover] = useState(false);
-  const isPro = (plan as any).recommended;
+  const isPro = !!plan.recommended;
   return (
     <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ position: 'relative', width: 320, padding: '40px 32px 32px', borderRadius: 20, background: isPro ? 'linear-gradient(155deg, rgba(124,58,237,0.12), rgba(59,130,246,0.06))' : 'rgba(13,20,36,0.7)', backdropFilter: 'blur(20px)', border: `${isPro ? 2 : 1}px solid ${isPro ? '#7C3AED' : hover ? plan.accent + '88' : 'rgba(26,39,64,0.6)'}`, boxShadow: hover ? isPro ? '0 0 60px rgba(124,58,237,0.45), 0 30px 60px rgba(0,0,0,0.6)' : `0 0 40px ${plan.accent}55, 0 20px 40px rgba(0,0,0,0.5)` : isPro ? '0 0 30px rgba(124,58,237,0.25), 0 20px 40px rgba(0,0,0,0.5)' : '0 10px 30px rgba(0,0,0,0.3)', transform: hover ? 'translateY(-6px) scale(1.01)' : 'translateY(0) scale(1)', transition: 'all 300ms cubic-bezier(0.34, 1.56, 0.64, 1)', animation: `cardEntry 700ms var(--ease-spring) ${150 + index * 100}ms both` }}>
       {isPro && (
@@ -64,7 +76,7 @@ function PricingCard({ plan, index }: { plan: typeof plans[0]; index: number }) 
           </li>
         ))}
       </ul>
-      <button style={{ width: '100%', padding: '14px 16px', borderRadius: 10, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 14, color: 'white', background: isPro ? 'linear-gradient(135deg, #7C3AED, #3B82F6)' : `linear-gradient(135deg, ${plan.accent}33, ${plan.accent}11)`, border: isPro ? 'none' : `1px solid ${plan.accent}66`, boxShadow: hover && isPro ? '0 0 40px rgba(124,58,237,0.6)' : isPro ? '0 0 20px rgba(124,58,237,0.35)' : 'none', transform: hover ? 'scale(1.02)' : 'scale(1)', transition: 'all 200ms cubic-bezier(0.34, 1.56, 0.64, 1)' }}>{plan.cta}</button>
+      <a href={plan.ctaHref} style={{ display: 'block', width: '100%', boxSizing: 'border-box', padding: '14px 16px', borderRadius: 10, cursor: 'pointer', textAlign: 'center', textDecoration: 'none', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 14, color: 'white', background: isPro ? 'linear-gradient(135deg, #7C3AED, #3B82F6)' : `linear-gradient(135deg, ${plan.accent}33, ${plan.accent}11)`, border: isPro ? 'none' : `1px solid ${plan.accent}66`, boxShadow: hover && isPro ? '0 0 40px rgba(124,58,237,0.6)' : isPro ? '0 0 20px rgba(124,58,237,0.35)' : 'none', transform: hover ? 'scale(1.02)' : 'scale(1)', transition: 'all 200ms cubic-bezier(0.34, 1.56, 0.64, 1)' }}>{plan.cta}</a>
     </div>
   );
 }
