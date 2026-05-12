@@ -65,7 +65,7 @@ pydantic_core==2.46.4
 PyJWT==2.12.1
 python-dotenv==1.2.2
 python-multipart==0.0.27
-pywin32==311
+pywin32==311; sys_platform == "win32"
 PyYAML==6.0.3
 qdrant-client==1.17.1
 referencing==0.37.0
