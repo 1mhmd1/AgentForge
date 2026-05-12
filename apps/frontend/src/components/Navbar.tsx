@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { HexIcon } from './Icons';
+import ReactDOM from 'react-dom';
+import { HexIcon, RunsIcon, AgentsIcon, PricingIcon, UserCircleIcon, ShieldIcon } from './Icons';
 import { useAuth } from '../auth/AuthContext';
 import { isAdmin } from '../auth/roles';
 import { useViewport } from '../hooks/useViewport';
@@ -9,20 +10,27 @@ interface NavbarProps {
   onNavigate: (page: string) => void;
 }
 
+type NavItem = {
+  id: string;
+  label: string;
+  Icon: React.FC<React.SVGProps<SVGSVGElement>>;
+  iconOnly?: boolean;
+};
+
 export default function Navbar({ current, onNavigate }: NavbarProps) {
   const { user } = useAuth();
   const { isTablet } = useViewport();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const items = useMemo(() => {
-    const base = [
-      { id: 'runs', label: 'Runs' },
-      { id: 'agents', label: 'Agents' },
-      { id: 'pricing', label: 'Pricing' },
-      { id: 'account', label: 'Account' },
+  const items = useMemo<NavItem[]>(() => {
+    const base: NavItem[] = [
+      { id: 'runs',    label: 'Runs',    Icon: RunsIcon },
+      { id: 'agents',  label: 'Agents',  Icon: AgentsIcon },
+      { id: 'pricing', label: 'Pricing', Icon: PricingIcon },
+      { id: 'account', label: 'Account', Icon: UserCircleIcon, iconOnly: true },
     ];
     if (isAdmin(user)) {
-      base.splice(3, 0, { id: 'admin', label: 'Admin' });
+      base.splice(3, 0, { id: 'admin', label: 'Admin', Icon: ShieldIcon });
     }
     return base;
   }, [user]);
@@ -69,27 +77,36 @@ export default function Navbar({ current, onNavigate }: NavbarProps) {
           {items.map((it) => {
             const active = current === it.id || (it.id === 'runs' && current === 'run-exec');
             const showUnderline = active || hovered === it.id;
+            const col = active ? '#A78BFA' : hovered === it.id ? '#E2E8F0' : '#94A3B8';
             return (
               <button
                 key={it.id}
                 onClick={() => navigate(it.id)}
                 onMouseEnter={() => setHovered(it.id)}
                 onMouseLeave={() => setHovered(null)}
+                aria-label={it.iconOnly ? it.label : undefined}
                 style={{
                   ...s.link,
-                  color: active ? '#A78BFA' : hovered === it.id ? '#E2E8F0' : '#94A3B8',
+                  color: col,
                   textShadow: hovered === it.id ? '0 0 20px rgba(124,58,237,0.6)' : 'none',
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  ...(it.iconOnly ? { padding: '4px 2px' } : {}),
                 }}
               >
-                {it.label}
-                <span style={{ ...s.underline, width: showUnderline ? '100%' : '0%' }} />
+                <it.Icon
+                  width={it.iconOnly ? 18 : 14}
+                  height={it.iconOnly ? 18 : 14}
+                  style={{ flexShrink: 0, color: col }}
+                />
+                {!it.iconOnly && <span>{it.label}</span>}
+                {!it.iconOnly && <span style={{ ...s.underline, width: showUnderline ? '100%' : '0%' }} />}
               </button>
             );
           })}
         </div>
       )}
 
-      {isTablet && menuOpen && (
+      {isTablet && menuOpen && ReactDOM.createPortal(
         <>
           <div
             onClick={() => setMenuOpen(false)}
@@ -99,6 +116,7 @@ export default function Navbar({ current, onNavigate }: NavbarProps) {
           <div role="dialog" aria-modal="true" aria-label="Navigation menu" style={s.sheet}>
             {items.map((it) => {
               const active = current === it.id || (it.id === 'runs' && current === 'run-exec');
+              const col = active ? '#A78BFA' : '#E2E8F0';
               return (
                 <button
                   type="button"
@@ -106,17 +124,19 @@ export default function Navbar({ current, onNavigate }: NavbarProps) {
                   onClick={() => navigate(it.id)}
                   style={{
                     ...s.sheetItem,
-                    color: active ? '#A78BFA' : '#E2E8F0',
+                    color: col,
                     background: active ? 'rgba(124,58,237,0.12)' : 'transparent',
                     borderLeft: active ? '2px solid #7C3AED' : '2px solid transparent',
                   }}
                 >
+                  <it.Icon width={16} height={16} style={{ flexShrink: 0, color: col, marginRight: 2 }} />
                   {it.label}
                 </button>
               );
             })}
           </div>
-        </>
+        </>,
+        document.body
       )}
     </nav>
   );

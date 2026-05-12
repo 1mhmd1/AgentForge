@@ -26,7 +26,7 @@ export default function App() {
 }
 
 function AppShell() {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
   const [page, setPage] = useState('home');
   const [runId, setRunId] = useState<string | null>(null);
   const [warpKey, setWarpKey] = useState(0);
@@ -89,7 +89,11 @@ function AppShell() {
   return (
     <>
       <Navbar current={page === 'run-exec' ? 'runs' : page === 'home' ? null : page} onNavigate={navigate} />
-      <SleepingMascot onGoToChat={goToChat} />
+      <SleepingMascot onGoToChat={goToChat} userName={
+        (user as any)?.name?.split(' ')[0] ||
+        user?.email?.split('@')[0]?.replace(/[._-]/g, ' ')?.split(' ')[0]?.replace(/^\w/, (c: string) => c.toUpperCase()) ||
+        'there'
+      } />
       <RoboticCursor />
       <div key={page} data-page-root="" style={{ animation: 'pageIn 350ms var(--ease-spring) forwards', position: 'relative', zIndex: 1 }}>
         {content}

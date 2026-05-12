@@ -46,15 +46,18 @@ export default function Account() {
   // Responsive overrides for the page's rigid grids. Composed onto the base
   // style objects via spread so the desktop layout is preserved when these
   // booleans are false.
-  const titleSize = isMobile ? 28 : isTablet ? 36 : 44;
-  const rootPadding = isMobile ? '36px 14px 80px' : isTablet ? '48px 20px 100px' : '64px 32px 100px';
+  const titleSize = isMobile ? 26 : isTablet ? 34 : 44;
+  const rootPadding = isMobile ? '32px 12px 72px' : isTablet ? '48px 20px 100px' : '64px 32px 100px';
   const mainGridCols = isTablet ? '1fr' : 'repeat(2, 1fr)';
-  const statGridCols = isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)';
+  const statGridCols = isMobile ? 'repeat(2, 1fr)' : isTablet ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)';
   const fieldRowDir: React.CSSProperties['flexDirection'] = isMobile ? 'column' : 'row';
+  const headerRowDir: React.CSSProperties['flexDirection'] = isMobile ? 'column' : 'row';
+  const headerRowAlign = isMobile ? 'flex-start' : 'flex-end';
+  const cardPadding = isMobile ? 18 : 28;
 
   return (
     <div data-responsive-root style={{ ...s.root, padding: rootPadding }}>
-      <div style={s.headerRow}>
+      <div style={{ ...s.headerRow, flexDirection: headerRowDir, alignItems: headerRowAlign }}>
         <div>
           <div style={{ ...s.eyebrow, animation: 'fadeUp 500ms var(--ease-spring) both' }}>ACCOUNT</div>
           <h1 style={{ ...s.title, fontSize: titleSize, animation: 'fadeUp 600ms var(--ease-spring) 80ms both' }}>
@@ -69,9 +72,9 @@ export default function Account() {
       </div>
 
       <div style={{ ...s.grid, gridTemplateColumns: mainGridCols }}>
-        <section style={{ ...s.card, animation: 'cardEntry 700ms var(--ease-spring) 300ms both' }}>
+        <section style={{ ...s.card, padding: cardPadding, animation: 'cardEntry 700ms var(--ease-spring) 300ms both' }}>
           <SectionTitle>Profile</SectionTitle>
-          <div style={s.avatarRow}>
+          <div style={{ ...s.avatarRow, flexWrap: 'wrap' }}>
             <div style={s.avatar}><span>{initials}</span><span style={s.avatarRing} /></div>
             <div>
               <div style={{ fontSize: 18, fontWeight: 600, color: '#E2E8F0', fontFamily: 'Inter, sans-serif' }}>{displayName}</div>
@@ -87,7 +90,7 @@ export default function Account() {
           </div>
         </section>
 
-        <section style={{ ...s.card, animation: 'cardEntry 700ms var(--ease-spring) 400ms both' }}>
+        <section style={{ ...s.card, padding: cardPadding, animation: 'cardEntry 700ms var(--ease-spring) 400ms both' }}>
           <SectionTitle>Your runs</SectionTitle>
           {loading ? (
             <Skeleton />
@@ -115,7 +118,7 @@ export default function Account() {
           )}
         </section>
 
-        <section style={{ ...s.card, gridColumn: '1 / -1', animation: 'cardEntry 700ms var(--ease-spring) 500ms both' }}>
+        <section style={{ ...s.card, padding: cardPadding, gridColumn: '1 / -1', animation: 'cardEntry 700ms var(--ease-spring) 500ms both' }}>
           <SectionTitle>Recent activity</SectionTitle>
           {loading ? (
             <Skeleton rows={4} />
@@ -220,7 +223,7 @@ function formatWhen(iso: string): string {
 
 const s: Record<string, React.CSSProperties> = {
   root: { maxWidth: 1080, margin: '0 auto', padding: '64px 32px 100px', position: 'relative', zIndex: 1 },
-  headerRow: { display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 48, gap: 24, flexWrap: 'wrap' },
+  headerRow: { display: 'flex', justifyContent: 'space-between', marginBottom: 40, gap: 20, flexWrap: 'wrap' },
   eyebrow: { display: 'inline-block', fontSize: 11, fontWeight: 600, letterSpacing: '0.18em', color: '#A78BFA', marginBottom: 12 },
   title: { fontSize: 44, fontWeight: 800, letterSpacing: '-0.04em', lineHeight: 1.1, color: '#E2E8F0', margin: 0 },
   gradient: { background: 'linear-gradient(135deg, #7C3AED, #3B82F6, #06B6D4)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' },
