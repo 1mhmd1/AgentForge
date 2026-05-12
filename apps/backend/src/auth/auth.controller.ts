@@ -130,7 +130,7 @@ export class AuthController {
       userAgent: req.headers['user-agent'],
     });
     this.writeAuthCookies(res, tokens);
-    const frontend = this.config.get<string>('frontendUrl') ?? 'http://localhost:5173';
+    const frontend = this.config.get<string>('frontendUrl') ?? 'https://agent-forge-frontend-ruby.vercel.app/dashboard';
     return res.redirect(frontend);
   }
 
@@ -147,13 +147,13 @@ export class AuthController {
     res.cookie('token', tokens.access_token, {
       httpOnly: true,
       secure,
-      sameSite: 'lax',
+      sameSite: 'none',
       maxAge: accessMaxAgeMs,
     });
     res.cookie('refresh_token', tokens.refresh_token, {
       httpOnly: true,
       secure,
-      sameSite: 'lax',
+      sameSite: 'none',
       expires: tokens.refresh_expires_at,
       path: '/api/auth',
     });
@@ -161,7 +161,7 @@ export class AuthController {
 
   private clearAuthCookies(res: Response) {
     const secure = this.config.get<string>('nodeEnv') === 'production';
-    res.clearCookie('token', { httpOnly: true, secure, sameSite: 'lax' });
+    res.clearCookie('token', { httpOnly: true, secure, sameSite: 'none' });
     res.clearCookie('refresh_token', {
       httpOnly: true,
       secure,

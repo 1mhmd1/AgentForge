@@ -26,7 +26,7 @@ const Schema = z.object({
     .url()
     .default('http://localhost:3000/api/auth/google/callback'),
 
-  AI_SERVICE_URL: z.string().url().default('http://localhost:4000'),
+  AI_SERVICE_URL: z.string().url().default('https://agentforge-qnq1.onrender.com'),
   AI_SERVICE_TIMEOUT_MS: z
     .string()
     .default('120000')
