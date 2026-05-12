@@ -130,13 +130,16 @@ export class AuthController {
       userAgent: req.headers['user-agent'],
     });
     this.writeAuthCookies(res, tokens);
-    const frontend = this.config.get<string>('frontendUrl') ?? 'http://localhost:5173';
+    const frontend = this.config.get<string>('frontendUrl') ?? 'https://agent-forge-frontend-ruby.vercel.app/dashboard';
     return res.redirect(frontend);
   }
 
   // ─── helpers ──────────────────────────────────────────
   private writeAuthCookies(res: Response, tokens: IssuedTokens) {
-    const secure = this.config.get<string>('nodeEnv') === 'production';
+    const frontendUrl = this.config.get<string>('frontendUrl') ?? '';
+    const isHttps = /^https:\/\//i.test(frontendUrl);
+    const secure = this.config.get<string>('nodeEnv') === 'production' || isHttps;
+    const sameSite = secure ? 'none' : 'lax';
 
     // Access cookie: short, matches JWT_EXPIRES_IN. Browsers will discard the
     // cookie at the same time the JWT expires — no zombie tokens.
@@ -147,25 +150,28 @@ export class AuthController {
     res.cookie('token', tokens.access_token, {
       httpOnly: true,
       secure,
-      sameSite: 'lax',
+      sameSite,
       maxAge: accessMaxAgeMs,
     });
     res.cookie('refresh_token', tokens.refresh_token, {
       httpOnly: true,
       secure,
-      sameSite: 'lax',
+      sameSite,
       expires: tokens.refresh_expires_at,
       path: '/api/auth',
     });
   }
 
   private clearAuthCookies(res: Response) {
-    const secure = this.config.get<string>('nodeEnv') === 'production';
-    res.clearCookie('token', { httpOnly: true, secure, sameSite: 'lax' });
+    const frontendUrl = this.config.get<string>('frontendUrl') ?? '';
+    const isHttps = /^https:\/\//i.test(frontendUrl);
+    const secure = this.config.get<string>('nodeEnv') === 'production' || isHttps;
+    const sameSite = secure ? 'none' : 'lax';
+    res.clearCookie('token', { httpOnly: true, secure, sameSite });
     res.clearCookie('refresh_token', {
       httpOnly: true,
       secure,
-      sameSite: 'lax',
+      sameSite,
       path: '/api/auth',
     });
   }

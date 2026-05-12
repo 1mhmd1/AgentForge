@@ -454,6 +454,6 @@ async def serve_ui():
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("AI_PORT", "4000"))
-    print(f"\nAgentForge Pipeline UI → http://localhost:{port}\n")
+    port = int(os.getenv("PORT") or os.getenv("AI_PORT", "4000"))
+    print(f"\nAgentForge Pipeline UI -> http://localhost:{port}\n")
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
