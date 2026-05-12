@@ -36,8 +36,10 @@ async function bootstrap() {
 
   const config = app.get(ConfigService);
   const port = config.get<number>('port') ?? 3000;
-  const corsOrigins = config.get<string[]>('corsOrigins') ?? [
-    'http://localhost:5173','https://agent-forge-frontend-ruby.vercel.app',
+  const corsOrigins =
+  process.env.CORS_ORIGINS?.split(',').map((origin) => origin.trim()) || [
+    'http://localhost:5173',
+    'https://agent-forge-frontend-ruby.vercel.app',
   ];
   const nodeEnv = config.get<string>('nodeEnv') ?? 'development';
 
@@ -59,10 +61,11 @@ async function bootstrap() {
   );
 
   app.enableCors({
-    origin: corsOrigins,
-    credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  });
+  origin: corsOrigins,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+});
 
   // Global /api prefix; health + metrics live on the bare URL so external
   // probes don't have to know about the prefix.
