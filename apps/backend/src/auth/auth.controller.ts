@@ -130,7 +130,7 @@ export class AuthController {
       userAgent: req.headers['user-agent'],
     });
     this.writeAuthCookies(res, tokens);
-    const frontend = this.config.get<string>('frontendUrl') ?? 'https://agent-forge-frontend-ruby.vercel.app/dashboard';
+    const frontend = this.config.get<string>('frontendUrl') ?? 'http://localhost:5173/';
     return res.redirect(frontend);
   }
 
